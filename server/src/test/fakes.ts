@@ -61,6 +61,15 @@ export class FakeRedis implements RedisLike {
   async get(key: string) {
     return this.valores.get(key) ?? null;
   }
+  // suporta set(key, val, 'EX', ttl, 'NX') como o ioredis (dedup de wamid)
+  async set(key: string, val: string, ...args: Array<string | number>) {
+    if (args.includes('NX') && this.valores.has(key)) return null;
+    this.valores.set(key, val);
+    return 'OK';
+  }
+  async del(key: string) {
+    return this.valores.delete(key) ? 1 : 0;
+  }
 }
 
 export function fakeMeta() {

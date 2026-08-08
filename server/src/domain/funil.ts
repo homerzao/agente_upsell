@@ -23,6 +23,9 @@ export type RedisLike = {
   incr(key: string): Promise<number>;
   expire(key: string, seg: number): Promise<unknown>;
   get(key: string): Promise<string | null>;
+  // set com 'EX', ttl, 'NX' (dedup de wamid): retorna 'OK' ou null.
+  // Assinatura frouxa de propósito — os overloads do ioredis não unificam.
+  set(...args: any[]): Promise<unknown>;
 };
 
 export type FunilCtx = {
@@ -270,8 +273,8 @@ export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise
 }
 
 // Localiza/cria a conversa do contato no Chatwoot e atribui ao agente IA.
-export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, modo: 'test' | 'live'): Promise<void> {
-  if (!ctx.chatwoot) return;
+export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, modo: 'test' | 'live'): Promise<number | null> {
+  if (!ctx.chatwoot) return null;
   const fone = destino(ctx, modo, row.customer_phone);
   let contato = await ctx.chatwoot.buscarContatoPorFone(fone);
   if (!contato) contato = await ctx.chatwoot.criarContato(row.customer_name ?? 'Cliente Hidrabene', fone);
@@ -288,9 +291,46 @@ export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, mod
      ON CONFLICT (chatwoot_conversation_id) DO UPDATE SET wa_upsell_id=EXCLUDED.wa_upsell_id, atualizado_em=now()`,
     [row.id, convId, contato.id],
   );
+  return Number(convId);
+}
+
+// Row do funil em CONTEXTO ATIVO pro fone: open, ou fechada há < 24h (pós-msg).
+// fora_do_fluxo nunca conta — é SAC comum, não é conversa nossa.
+export async function buscarRowContextoAtivo(ctx: FunilCtx, fone: string): Promise<WaUpsellRow | null> {
+  const dig = soDigitos(fone);
+  if (!dig) return null;
+  const r = await ctx.db.query(
+    `SELECT * FROM wa_upsell
+     WHERE customer_phone=$1 AND store='hidrabene'
+       AND etapa <> 'fora_do_fluxo' AND disparo_status IS NOT NULL
+       AND (status='open' OR atualizado_em > now() - interval '24 hours')
+     ORDER BY criado_em DESC LIMIT 1`,
+    [dig],
+  );
+  return (r.rows[0] as WaUpsellRow) ?? null;
 }
 
 /* ===== 3. Resposta do Flow (nfm_reply) ===== */
+
+// Despedida no fechamento do flow — enviada UMA vez por row (claim atômico na flag).
+export async function enviarDespedida(ctx: FunilCtx, row: WaUpsellRow): Promise<void> {
+  const claim = await ctx.db.query(
+    `UPDATE wa_upsell SET despedida_enviada=true, atualizado_em=now()
+     WHERE store=$1 AND order_id=$2 AND despedida_enviada=false RETURNING order_id`,
+    [row.store, row.order_id],
+  );
+  if (!claim.rows.length) return; // já enviada
+  const cfgd = await getDisparosConfig(ctx);
+  const oferta = await getOferta(ctx, row.oferta_id);
+  const msg = renderCopy(oferta?.copies?.msg_despedida ?? '', {
+    nome: primeiroNome(row.customer_name),
+    numero: row.order_number ?? '',
+  });
+  if (!msg) return;
+  await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).catch(async (e) => {
+    await logEvento(ctx, row.store, { erro: 'msg_despedida_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+  });
+}
 
 export async function registrarResposta(ctx: FunilCtx, store: string, orderId: number, resposta: RespostaFlow): Promise<void> {
   const acao = interpretarRespostaFlow(resposta);
@@ -298,6 +338,12 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
   // NUNCA sobrescreve um pagamento já confirmado.
   const atual = await getRow(ctx, store, orderId);
   if (atual?.etapa === 'pago') return;
+  if (acao === 'expirou_flow') {
+    // Flow v6 fechou com oferta='expirada': o SERVIDOR já ocultou o ticket —
+    // a row já está closed com a etapa certa; só a despedida sai.
+    if (atual) await enviarDespedida(ctx, atual);
+    return;
+  }
   if (acao === 'corrigir') {
     // segue open: agente IA coleta a correção; aprovação humana aplica e fecha.
     // status open EXPLÍCITO: se o clique vier depois do auto-close de 4h, a row
@@ -325,11 +371,19 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
     return;
   }
   if (acao === 'recusou') {
-    await waupSet(ctx, store, orderId, { status: 'closed', etapa: 'recusado' });
+    if (atual?.status === 'open') {
+      await waupSet(ctx, store, orderId, { status: 'closed', etapa: 'recusado' });
+    }
+    if (atual) await enviarDespedida(ctx, { ...atual, status: 'closed', etapa: 'recusado' });
     return;
   }
   if (acao === 'confirmou') {
-    await waupSet(ctx, store, orderId, { etapa: 'confirmado' });
+    // nfm_reply de 'confirmar' é o fechamento TERMINAL do flow (o data_exchange
+    // intermediário passa pelo /flow/upsell, não por aqui) — despedida sai.
+    if (atual?.status === 'open') {
+      await waupSet(ctx, store, orderId, { etapa: 'confirmado' });
+    }
+    if (atual) await enviarDespedida(ctx, atual);
   }
 }
 
@@ -337,8 +391,33 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
 
 export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: number): Promise<void> {
   const row = await getRow(ctx, store, orderId);
+  if (!row) return;
   // Cliente consegue aceitar 2× (recarrega o flow, outra aba): idempotente
-  if (!row || row.status !== 'open' || ['pix_enviado', 'pago'].includes(row.etapa)) return;
+  if (['pix_enviado', 'pago'].includes(row.etapa)) return;
+  if (row.status !== 'open') {
+    // Aceite TARDIO: o cliente clicou, precisa de resposta — nunca silêncio.
+    // (reusa a flag da despedida: um fechamento por row, sem mensagem dupla)
+    const claim = await ctx.db.query(
+      `UPDATE wa_upsell SET despedida_enviada=true, atualizado_em=now()
+       WHERE store=$1 AND order_id=$2 AND despedida_enviada=false RETURNING order_id`,
+      [store, orderId],
+    );
+    await logEvento(ctx, store, { evento: 'aceite_tardio', order_id: orderId, etapa: row.etapa });
+    if (claim.rows.length) {
+      const cfgdT = await getDisparosConfig(ctx);
+      const ofertaT = await getOferta(ctx, row.oferta_id);
+      const msg = renderCopy(ofertaT?.copies?.msg_aceite_tardio ?? '', {
+        nome: primeiroNome(row.customer_name),
+        numero: row.order_number ?? '',
+      });
+      if (msg) {
+        await ctx.meta.enviarTexto(destino(ctx, cfgdT.modo, row.customer_phone), msg).catch(async (e) => {
+          await logEvento(ctx, store, { erro: 'msg_aceite_tardio_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+        });
+      }
+    }
+    return;
+  }
   const cfgd = await getDisparosConfig(ctx);
   const oferta = await getOferta(ctx, row.oferta_id);
   if (!oferta || !ctx.cfg.PAGARME_SECRET_KEY) {
@@ -532,13 +611,26 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
         [r.store, r.order_id],
       );
     }
-    // 4h sem resposta: fecha (auto-close usa criado_em — re-aberturas resetam).
-    // sandbox fica de fora: os casos do contrato do faturamento são permanentes.
+    // Janela pré-aceite de 25min (alinhada à liberação do pedido no ERP ~28min):
+    // fecha aguardando_confirmacao/confirmado/erro_disparo como sem_resposta.
+    // Auto-close usa criado_em — re-aberturas resetam. Sandbox fica de fora:
+    // os casos do contrato do faturamento são permanentes.
     await ctx.db.query(
       `UPDATE wa_upsell SET status='closed', etapa='sem_resposta', atualizado_em=now()
        WHERE status='open' AND store <> 'sandbox'
          AND etapa IN ('aguardando_confirmacao','confirmado','erro_disparo')
-         AND criado_em < now() - ($1 || ' hours')::interval`,
+         AND criado_em < now() - ($1 || ' minutes')::interval`,
+      [ctx.cfg.WA_UPSELL_JANELA_MIN],
+    );
+    // corrigir_sac (atendimento humano) tem 4h — e SÓ fecha o cliente que pediu
+    // correção e sumiu: correção já coletada (aguardando_aprovacao) segura a row
+    // até a decisão do operador.
+    await ctx.db.query(
+      `UPDATE wa_upsell SET status='closed', etapa='sem_resposta', atualizado_em=now()
+       WHERE status='open' AND store <> 'sandbox' AND etapa='corrigir_sac'
+         AND criado_em < now() - ($1 || ' hours')::interval
+         AND NOT EXISTS (SELECT 1 FROM correcoes c
+                         WHERE c.wa_upsell_id = wa_upsell.id AND c.status='aguardando_aprovacao')`,
       [ctx.cfg.WA_UPSELL_AUTO_CLOSE_HORAS],
     );
   } catch {

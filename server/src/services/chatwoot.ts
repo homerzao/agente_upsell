@@ -68,6 +68,16 @@ export function criarChatwoot(
       private: privada,
     });
 
+  // Mensagem do CLIENTE injetada na conversa (webhook da Meta chega direto aqui;
+  // o Chatwoot não recebe mais sozinho). source_id marca a origem pra dedup.
+  const injetarMensagemCliente = (conversationId: number, content: string, sourceId: string) =>
+    req('POST', `/conversations/${conversationId}/messages`, {
+      content,
+      message_type: 'incoming',
+      private: false,
+      source_id: sourceId,
+    });
+
   const listarMensagens = async (conversationId: number): Promise<any[]> =>
     (await req('GET', `/conversations/${conversationId}/messages`)).payload ?? [];
 
@@ -92,6 +102,7 @@ export function criarChatwoot(
     criarContato,
     buscarOuCriarConversa,
     enviarMensagem,
+    injetarMensagemCliente,
     listarMensagens,
     atribuirAgente,
     atribuirTime,

@@ -62,4 +62,4 @@ export type RespostaFlow = {
   [k: string]: unknown;
 };
 
-export type AcaoResposta = 'corrigir' | 'aceitou' | 'recusou' | 'confirmou' | null;
+export type AcaoResposta = 'corrigir' | 'aceitou' | 'recusou' | 'confirmou' | 'expirou_flow' | null;

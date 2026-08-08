@@ -38,6 +38,14 @@ export const COPIES_DEFAULT: Record<string, string> = {
   // Descrição do item na cobrança Pagar.me
   pix_item_descricao: 'Ticket Dourado Hidrabene — Kit Clareador (3 produtos)',
 
+  // Aceite fora da janela (cliente clicou depois que a oferta expirou — precisa de resposta)
+  msg_aceite_tardio:
+    'Poxa, {{nome}}! 😔 Essa oferta relâmpago era por tempo limitado e acabou de expirar.\n\nMas fica tranquila: seu pedido *#{{numero}}* está confirmado e segue normalmente pro faturamento. O código de rastreio chega por aqui no WhatsApp. 💙',
+
+  // Despedida no fechamento do flow (recusou / confirmou terminal / expirada) — pedido do Jorge
+  msg_despedida:
+    'Tudo certo, {{nome}}! ✅ Seu pedido *#{{numero}}* está confirmado e já segue pro faturamento.\n\n📦 Assim que for enviado, o código de rastreio chega por aqui no WhatsApp.\n\nObrigada pela preferência! 💙',
+
   // Avisos do fluxo de correção com aprovação (novos neste sistema)
   msg_correcao_aplicada:
     'Prontinho, {{nome}}! ✅ Já ajustamos aqui: {{resumo}}.\n\nSeu pedido *#{{numero}}* segue pro faturamento com os dados certinhos. Qualquer coisa é só chamar! 💙',

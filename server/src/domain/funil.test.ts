@@ -145,7 +145,7 @@ describe('processarFilaDisparo', () => {
     expect(ctx.metaFake.enviadas.length).toBe(1);
     const tpl: any = ctx.metaFake.enviadas[0];
     expect(tpl.to).toBe('5591992148793'); // modo test -> fone do Jorge
-    expect(tpl.template.name).toBe('confirma_pedido_up_v4');
+    expect(tpl.template.name).toBe('confirma_pedido_up');
     const upd = db.achou(/UPDATE wa_upsell SET/).find((c) => c.text.includes('template_msg_id'));
     expect(upd?.values).toContain('enviado');
   });
@@ -283,6 +283,69 @@ describe('sweep', () => {
     expect(upd.text).toContain("status='open' AND etapa='pix_enviado'"); // condicionado
     const autoClose = db.achou(/sem_resposta/)[0];
     expect(autoClose.text).toContain("store <> 'sandbox'"); // sandbox é fixture permanente
+  });
+
+  it('janela pré-aceite em MINUTOS (25, ERP) e corrigir_sac à parte em horas', async () => {
+    const db = dbFunil();
+    const ctx = ctxTeste({ db });
+    await sweep(ctx);
+    const fechamentos = db.achou(/sem_resposta/);
+    expect(fechamentos.length).toBe(2);
+    const [janela, corrigir] = fechamentos;
+    expect(janela.text).toContain("' minutes')::interval");
+    expect(janela.values).toContain(25);
+    expect(janela.text).not.toContain('corrigir_sac');
+    expect(corrigir.text).toContain("etapa='corrigir_sac'");
+    expect(corrigir.text).toContain("' hours')::interval");
+    // correção JÁ COLETADA (aguardando_aprovacao) segura a row até a decisão
+    expect(corrigir.text).toContain("c.status='aguardando_aprovacao'");
+    expect(corrigir.text).toContain('NOT EXISTS');
+  });
+});
+
+describe('despedida e aceite tardio (validados em produção 07-08/08)', () => {
+  it('recusou: fecha, e a despedida sai UMA vez (claim na flag)', async () => {
+    const db = dbFunil({ row: {} });
+    let claims = 0;
+    db.on(/despedida_enviada=true/, () => (++claims === 1 ? [{ order_id: 169610420 }] : []));
+    const ctx = ctxTeste({ db });
+    await registrarResposta(ctx, 'hidrabene', 169610420, { oferta: 'recusar' });
+    const msgs = ctx.metaFake.enviadas.map((m: any) => m.text.body);
+    expect(msgs.some((m: string) => m.includes('Obrigada pela preferência'))).toBe(true);
+    // segunda recusa (re-execução do flow): sem segunda despedida
+    await registrarResposta(ctx, 'hidrabene', 169610420, { oferta: 'recusar' });
+    expect(ctx.metaFake.enviadas.length).toBe(1);
+  });
+
+  it('confirmou terminal: etapa confirmado + despedida', async () => {
+    const db = dbFunil({ row: {} });
+    db.on(/despedida_enviada=true/, () => [{ order_id: 169610420 }]);
+    const ctx = ctxTeste({ db });
+    await registrarResposta(ctx, 'hidrabene', 169610420, { decisao: 'confirmar' });
+    expect(db.achou(/UPDATE wa_upsell SET/)[0].values).toContain('confirmado');
+    expect((ctx.metaFake.enviadas[0] as any).text.body).toContain('já segue pro faturamento');
+  });
+
+  it('expirou_flow (v6): só a despedida — estado NÃO muda', async () => {
+    const db = dbFunil({ row: { status: 'closed', etapa: 'sem_resposta' } });
+    db.on(/despedida_enviada=true/, () => [{ order_id: 169610420 }]);
+    const ctx = ctxTeste({ db });
+    await registrarResposta(ctx, 'hidrabene', 169610420, { decisao: 'confirmar', oferta: 'expirada' });
+    expect((ctx.metaFake.enviadas[0] as any).text.body).toContain('já segue pro faturamento');
+    // nenhum UPDATE de status/etapa (só o claim da flag)
+    const upds = db.achou(/UPDATE wa_upsell SET/).filter((c) => !c.text.includes('despedida_enviada'));
+    expect(upds.length).toBe(0);
+  });
+
+  it('aceite tardio: responde "oferta expirou" + evento (nunca silêncio, nunca PIX)', async () => {
+    const db = dbFunil({ row: { status: 'closed', etapa: 'sem_resposta' } });
+    db.on(/despedida_enviada=true/, () => [{ order_id: 169610420 }]);
+    const ctx = ctxTeste({ db });
+    await aceitarOferta(ctx, 'hidrabene', 169610420);
+    expect((ctx.metaFake.enviadas[0] as any).text.body).toContain('acabou de expirar');
+    expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('aceite_tardio'))).toBe(true);
+    // nenhum PIX criado
+    expect(db.achou(/pix_charge_id/).filter((c) => c.text.startsWith('UPDATE')).length).toBe(0);
   });
 });
 

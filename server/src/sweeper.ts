@@ -1,6 +1,7 @@
 // Jobs periódicos:
-// - a cada 60s: expira PIX vencido (10min) e fecha sem_resposta (4h)
+// - a cada 60s: expira PIX vencido (10min), fecha sem_resposta (25min) e corrigir_sac (4h)
 // - a cada 5s: drena a fila de disparo respeitando kill switch e rate/hora
+// - a cada 6h: retenção de wa_events (30 dias; eventos de pagamento ficam)
 import { processarFilaDisparo, sweep, type FunilCtx } from './domain/funil.js';
 
 export function startSweeper(ctx: FunilCtx): () => void {
@@ -29,10 +30,19 @@ export function startSweeper(ctx: FunilCtx): () => void {
     }
   }, 5_000);
 
+  // Limpeza: requisito explícito com a Meta chamando direto (firehose).
+  const t3 = setInterval(() => {
+    ctx.db
+      .query(`DELETE FROM wa_events WHERE created_at < now() - interval '30 days' AND store <> 'pagarme'`)
+      .catch(() => {});
+  }, 6 * 3600 * 1000);
+
   t1.unref();
   t2.unref();
+  t3.unref();
   return () => {
     clearInterval(t1);
     clearInterval(t2);
+    clearInterval(t3);
   };
 }

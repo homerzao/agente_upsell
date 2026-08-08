@@ -28,11 +28,12 @@ describe('loadConfig', () => {
   it('defaults operacionais seguros (test + números validados)', () => {
     const cfg = loadConfig(envMin);
     expect(cfg.WA_FONE_TESTE).toBe('5591992148793'); // fone do Jorge
-    expect(cfg.WA_UPSELL_TEMPLATE_CONFIRMA).toBe('confirma_pedido_up_v4');
-    expect(cfg.WA_UPSELL_FLOW_ID).toBe('3351881904991012');
+    expect(cfg.WA_UPSELL_TEMPLATE_CONFIRMA).toBe('confirma_pedido_up');
+    expect(cfg.WA_UPSELL_FLOW_ID).toBe('3548925675262517'); // v6 (data_exchange)
     expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(5);
     expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(10);
-    expect(cfg.WA_UPSELL_AUTO_CLOSE_HORAS).toBe(4);
+    expect(cfg.WA_UPSELL_JANELA_MIN).toBe(25); // ERP libera ~28min
+    expect(cfg.WA_UPSELL_AUTO_CLOSE_HORAS).toBe(4); // só corrigir_sac
     expect(cfg.OPENAI_MODEL).toBe('gpt-5.6-luna');
   });
   it('exige BACKEND_TOKEN forte', () => {

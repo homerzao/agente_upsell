@@ -19,6 +19,7 @@ import { criarChatwoot } from './services/chatwoot.js';
 import { criarOpenAI } from './services/openai.js';
 import { criarAuth } from './plugins/auth.js';
 import { webhookRoutes } from './routes/webhooks.js';
+import { flowRoutes } from './routes/flow.js';
 import { statusRoutes } from './routes/status.js';
 import { adminRoutes } from './routes/admin.js';
 import { startSweeper } from './sweeper.js';
@@ -54,8 +55,13 @@ async function main() {
     !chatwootConfigurado && 'CHATWOOT_*',
     !cfg.OPENAI_API_KEY && 'OPENAI_API_KEY',
     !cfg.ADMIN_PASS_HASH && 'ADMIN_PASS_HASH',
+    !cfg.FLOW_PRIVATE_KEY && 'FLOW_PRIVATE_KEY (data channel do flow v6+)',
   ].filter(Boolean);
   if (faltando.length) console.warn('[config] integrações sem credencial:', faltando.join(', '));
+  if (cfg.METAWA_TOKEN && !cfg.META_APP_SECRET) {
+    // Meta chamando DIRETO: sem o secret o webhook aceita payload sem assinatura
+    console.warn('[SEGURANÇA] META_APP_SECRET vazio — o /webhook/meta está SEM validação de assinatura. Configurar antes do cutover.');
+  }
 
   const app = Fastify({
     logger: {
@@ -96,6 +102,7 @@ async function main() {
   app.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
 
   webhookRoutes(app, ctx);
+  flowRoutes(app, ctx); // data channel do flow (v6/v7)
   statusRoutes(app, ctx, auth);
   adminRoutes(app, ctx, auth);
 

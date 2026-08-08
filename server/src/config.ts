@@ -45,13 +45,20 @@ const schema = z.object({
   OPENAI_PRECO_OUTPUT_1M: z.coerce.number().default(0),
 
   WA_FONE_TESTE: z.string().default('5591992148793'),
-  WA_UPSELL_TEMPLATE_CONFIRMA: z.string().default('confirma_pedido_up_v4'),
-  WA_UPSELL_FLOW_ID: z.string().default('3351881904991012'),
+  WA_UPSELL_TEMPLATE_CONFIRMA: z.string().default('confirma_pedido_up'),
+  // v6 (data_exchange): o "Confirmar Pedido" chama o data channel /flow/upsell
+  WA_UPSELL_FLOW_ID: z.string().default('3548925675262517'),
   WA_UPSELL_HEADER_MEDIA_ID: z.string().default(''),
   WA_UPSELL_HEADER_URL: z.string().default(''),
   WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(5),
   WA_UPSELL_CLOSE_MIN: z.coerce.number().default(10),
+  // Janela pré-aceite: fecha aguardando_confirmacao/confirmado/erro_disparo (ERP libera ~28min)
+  WA_UPSELL_JANELA_MIN: z.coerce.number().default(25),
+  // Auto-close SÓ do corrigir_sac (atendimento humano)
   WA_UPSELL_AUTO_CLOSE_HORAS: z.coerce.number().default(4),
+  // Chave privada RSA do NÚMERO (whatsapp_business_encryption) — a MESMA do
+  // agente_ecom; NUNCA gerar par novo (quebraria o endpoint em produção).
+  FLOW_PRIVATE_KEY: z.string().default(''),
 });
 
 export type Config = z.infer<typeof schema> & {

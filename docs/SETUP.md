@@ -34,7 +34,9 @@ via labels do compose.
 | `SESSION_SECRET` | inventar |
 | `ADMIN_USER` / `ADMIN_PASS_HASH` | `node -e "console.log(require('bcryptjs').hashSync('SENHA', 12))"` |
 | `METAWA_*` | Meta Business (mesmo número/WABA do funil atual) |
-| `META_APP_SECRET` | opcional; se a Meta chamar DIRETO o webhook, configurar pra validar assinatura. Se mantiver o n8n forwardando, deixar vazio |
+| `META_APP_SECRET` | **OBRIGATÓRIO no cutover** — a Meta chama DIRETO (decisão tomada, sem n8n); sem ele o webhook fica sem validação de assinatura (o boot avisa) |
+| `FLOW_PRIVATE_KEY` | chave privada RSA do NÚMERO (data channel do flow v6+). É a MESMA do agente_ecom (state `flow_private_key`) — **NUNCA gerar par novo** (quebraria o endpoint em produção). PEM em uma linha com `\n` escapado |
+| `WA_UPSELL_JANELA_MIN` | 25 (janela pré-aceite, alinhada ao ERP ~28min) — default já correto |
 | `CHATWOOT_*` | TechSAC: criar um usuário API dedicado pro bot + pegar o ID da inbox do WhatsApp. `CHATWOOT_AGENT_ID` = id do usuário-agente IA (atribuição); `CHATWOOT_TEAM_ID` = id do time humano (handoff) |
 | `YAMPI_*` | painel Yampi |
 | `PAGARME_SECRET_KEY` | Pagar.me v5 |
@@ -59,11 +61,13 @@ Abrir o painel → **Config**: as URLs prontas (com token) estão lá pra copiar
    (eventos de pedido/cobrança paga).
 3. **Chatwoot**: Settings → Integrations → Webhooks → URL `…/webhook/chatwoot?t=…`,
    evento `message_created`.
-4. **Meta**: decisão sua (o endpoint aceita os DOIS formatos):
-   - **Direto**: apontar o webhook do app Meta pra `…/webhook/meta`, verificar com
-     o `METAWA_VERIFY_TOKEN`, e configurar `META_APP_SECRET` pra validar assinatura; ou
-   - **Manter o n8n**: o n8n continua filtrando `nfm_reply` e passa a forwardar pra
-     `…/webhook/meta` (sem assinatura — deixar `META_APP_SECRET` vazio).
+4. **Meta — DIRETO (sem n8n, decisão tomada)**: apontar o callback do app Meta pra
+   `…/webhook/meta`, verificar com o `METAWA_VERIFY_TOKEN` e configurar
+   `META_APP_SECRET`. O sistema filtra o firehose sozinho: só processa/persiste
+   nfm_reply do funil, status dos NOSSOS templates e texto de lead em contexto
+   ativo (open ou fechado < 24h); mensagens de lead são injetadas na conversa do
+   Chatwoot via API (o Chatwoot não recebe mais sozinho). Dedup por wamid (7 dias)
+   cobre as reentregas da Meta; retenção de wa_events: 30 dias (pagamentos ficam).
 
 ## 6. Chatwoot (agente IA)
 
@@ -73,13 +77,25 @@ Abrir o painel → **Config**: as URLs prontas (com token) estão lá pra copiar
 3. Handoff: label `precisa-humano` + atribuição ao `CHATWOOT_TEAM_ID` (criar o time
    se não existir).
 
-## 7. Template e Flow (Meta)
+## 7. Template e Flow (Meta) — v6 → v7 no cutover
 
-O sistema usa o template APROVADO atual (`confirma_pedido_up_v4`) e o flow
-`3351881904991012` — nada a fazer. Se um dia editar o flow: flow publicado é
-IMUTÁVEL (criar novo + repontar template = nova análise). O header do template usa
-media id que expira ~30 dias — preferir colocar uma URL de imagem própria na copy
-`header_url` da oferta (painel → Oferta).
+Produção usa o template `confirma_pedido_up` repontado pro **flow v6
+`3548925675262517`** (data_exchange: o "Confirmar Pedido" chama o data channel).
+O `endpoint_uri` de um flow publicado é IMUTÁVEL e o do v6 aponta pro agente_ecom
+— por isso o cutover cria um **v7 idêntico ao v6** com `endpoint_uri` =
+`https://$APP_DOMAIN/flow/upsell`:
+
+1. Copiar a `flow_private_key` do agente_ecom pro `.env` (`FLOW_PRIVATE_KEY`).
+2. Validar o endpoint simulando a Meta (os testes de integração do repo fazem
+   isso; em produção, o publish do v7 valida o ping ao vivo).
+3. Criar o v7 com o MESMO JSON do v6 (script `montar-flow-v5.mjs` +
+   `flow-ticket-v6.json` no agente_ecom; ou baixar a estrutura da Meta com
+   `GET /{flow_id}?fields=preview.invalidate(false)`), publicar — o endpoint
+   PRECISA estar no ar antes.
+4. Repontar o template pro v7 (só no passo certo do cutover, ver §9).
+
+Header do template usa media id que expira ~30 dias — preferir URL própria na
+copy `header_url` da oferta (painel → Oferta).
 
 ## 8. Ensaio em modo test (antes de qualquer live)
 
@@ -95,19 +111,38 @@ O sistema NASCE seguro: `modo=test` (tudo pro seu fone), filtro de CPF = só o s
    pedir correção de endereço → aparece em Aprovações com diff → aprovar →
    confere na Yampi.
 
-## 9. Rodar em paralelo e cortar o agente_ecom
+## 9. CUTOVER — ordem obrigatória (o velho fica no ar até o fim)
 
-1. Deixar os DOIS sistemas recebendo webhooks em paralelo, este em modo test,
-   até os estados baterem 1:1 (comparar fila daqui com `/wa-upsell/fila` de lá).
-2. Apontar o consumidor de status do faturamento pra cá (mesmo contrato, mesmo token).
-3. No agente_ecom (EasyPanel): `WA_UPSELL_ENABLED=0` (desliga o funil de lá;
-   a ingestão de pedidos do banco central continua intacta).
-4. Rollout gradual AQUI: painel → Disparo → amostra N=5 → acompanhar → abrir filtro
-   de CPF → `live`.
+A armadilha: um pedido `pago` no banco velho consultado no banco novo responderia
+`fora_do_fluxo` SEM pagamento → o faturamento faturaria SEM adicionar o SKU pago.
+Por isso a ordem abaixo importa:
 
-## Decisões em aberto (o sistema suporta os dois lados)
+1. Deploy deste sistema com defaults seguros (`pausado=true`, modo test, filtro no
+   seu CPF) — sobe sem receber tráfego nenhum.
+2. **Chave do flow**: copiar a `flow_private_key` pro `.env` novo e validar
+   `/flow/upsell` (ping + sandbox `900000001` dentro / `900000002` fora da janela).
+3. **Flow v7**: criar idêntico ao v6 com `endpoint_uri` novo e publicar
+   (o publish valida o ping). NÃO repontar o template ainda.
+4. **Congelar o velho**: pausar disparos no agente_ecom e esperar as rows `open`
+   esvaziarem (máx 4h se houver `corrigir_sac`; senão ~25min).
+5. **Importar histórico**:
+   `VELHO_DATABASE_URL=... DATABASE_URL=... node scripts/importar-historico.mjs`
+   (idempotente; aborta se sobrar `pago` sem pagamento).
+6. **Trocar as pontas** (qualquer ordem depois do 5):
+   - Webhook Yampi → URL nova (botão no painel Config);
+   - Webhook Pagar.me → URL nova;
+   - Callback do app Meta → URL nova + `META_APP_SECRET` + verify token;
+   - Repontar o template pro **flow v7**;
+   - Dev do faturamento troca a base URL (mesmo `STATUS_TOKEN` → troca invisível).
+   Enquanto o template apontar pro v6, o data_exchange continua caindo no
+   agente_ecom — que segue no ar até aqui. Sem downtime se a ordem for respeitada.
+7. **Ensaio E2E** com pedido/CPF seu (modo test) antes de abrir o filtro.
+8. Rollout gradual: amostra N=5 → acompanhar → abrir filtro de CPF → `live`.
+   Depois: `WA_UPSELL_ENABLED=0` no agente_ecom (a ingestão do banco central
+   continua intacta lá).
 
-- **Meta direto vs n8n** (§5.4): decidir e configurar.
+## Decisão em aberto
+
 - **Agent Bot vs usuário-agente no Chatwoot**: implementado com usuário-agente
   dedicado + atribuição via API (mais simples de operar no TechSAC). Se preferir
   Agent Bot nativo, é trocar a atribuição — falar com o dev.

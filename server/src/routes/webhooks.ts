@@ -4,8 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { AgenteCtx } from '../domain/agente/agente.js';
 import { processarMensagemCliente } from '../domain/agente/agente.js';
-import { confirmarPagamento, logEvento, processarPedidoYampi, registrarResposta } from '../domain/funil.js';
-import { parseFlowToken } from '../domain/estados.js';
+import { confirmarPagamento, logEvento, processarPedidoYampi } from '../domain/funil.js';
+import { processarWebhookMeta } from '../domain/metaWebhook.js';
 import { soDigitos } from '../lib/util.js';
 
 export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
@@ -59,6 +59,13 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
     const texto = String(body.content ?? '').trim();
     const fone = soDigitos(body.sender?.phone_number ?? body.conversation?.meta?.sender?.phone_number ?? '');
     if (!conversationId || !texto) return { received: true };
+    // Dedup na transição Meta-direto: a mesma mensagem pode chegar pela nossa
+    // injeção (source_id waup-wa:<wamid>) E pelo canal nativo (source_id <wamid>)
+    const srcId = String(body.source_id ?? '').replace(/^waup-wa:/, '');
+    if (srcId) {
+      const primeiro = await ctx.redis.set(`waup:cwdedup:${srcId}`, '1', 'EX', 24 * 3600, 'NX');
+      if (primeiro === null || primeiro === undefined) return { received: true };
+    }
     // Processa async: webhook responde já (Chatwoot não espera o modelo)
     processarMensagemCliente(ctx, Number(conversationId), fone, texto).catch(async (e) => {
       await logEvento(ctx, 'hidrabene', { erro: 'webhook_chatwoot_falhou', detalhe: String((e as Error).message).slice(0, 300) });
@@ -76,50 +83,18 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
   });
 
   app.post('/webhook/meta', async (req, reply) => {
-    // Assinatura (quando META_APP_SECRET configurado). O n8n do Jorge pode
-    // forwardar sem assinatura — nesse caso, deixar META_APP_SECRET vazio.
+    // A Meta chama DIRETO (decisão do Jorge, sem n8n): com META_APP_SECRET
+    // configurado, payload sem assinatura válida é recusado.
     const rawBody = (req as any).rawBody ?? '';
     if (!ctx.meta.validarAssinatura(rawBody, req.headers['x-hub-signature-256'] as string | undefined)) {
       return reply.code(403).send({ error: 'assinatura inválida' });
     }
     const body = (req.body ?? {}) as any;
-    await logEvento(ctx, 'hidrabene', { origem: 'meta', payload: body });
+    // Firehose do número: NÃO logar payload cru — a filtragem decide o que
+    // persiste (só eventos do funil; ver domain/metaWebhook.ts).
     try {
-      // Formato direto (n8n forwarda só o nfm_reply): {flow_token, ...respostas}
-      if (body.flow_token && !body.entry) {
-        const ref = parseFlowToken(body.flow_token);
-        if (ref) await registrarResposta(ctx, ref.store, ref.orderId, body);
-        return { received: true };
-      }
-      for (const entry of body.entry ?? []) {
-        for (const ch of entry.changes ?? []) {
-          // Respostas de Flow: flow_token = "loja:order_id"; response_json tem a decisão
-          for (const msg of ch.value?.messages ?? []) {
-            const nfm = msg.interactive?.nfm_reply;
-            if (!nfm) continue;
-            let resp: any = {};
-            try {
-              resp = JSON.parse(nfm.response_json ?? '{}');
-            } catch {
-              continue;
-            }
-            const ref = parseFlowToken(resp.flow_token);
-            if (ref) await registrarResposta(ctx, ref.store, ref.orderId, resp);
-          }
-          // Status de entrega do template (card "entregues" do painel)
-          for (const st of ch.value?.statuses ?? []) {
-            if (['delivered', 'read'].includes(String(st.status)) && st.id) {
-              await ctx.db.query(
-                `UPDATE wa_upsell SET disparo_status='entregue', atualizado_em=now()
-                 WHERE template_msg_id=$1 AND disparo_status='enviado'`,
-                [st.id],
-              );
-            }
-          }
-        }
-      }
+      await processarWebhookMeta(ctx, body);
     } catch (e) {
-      // wa_events guarda o raw pra diagnóstico
       await logEvento(ctx, 'hidrabene', { erro: 'webhook_meta_falhou', detalhe: String((e as Error).message).slice(0, 300) });
     }
     return { received: true };

@@ -50,6 +50,11 @@ describe('interpretarRespostaFlow (lógica validada)', () => {
     expect(interpretarRespostaFlow({ decisao: 'confirmar' })).toBe('confirmou');
     expect(interpretarRespostaFlow({ decisao: 'ok_confirmado' })).toBe('confirmou');
   });
+  it('flow v6: oferta expirada pelo servidor (fora da janela)', () => {
+    expect(interpretarRespostaFlow({ oferta: 'expirada' })).toBe('expirou_flow');
+    // ganha até do decisao confirmar que vem junto no fechamento
+    expect(interpretarRespostaFlow({ decisao: 'confirmar', oferta: 'expirada' })).toBe('expirou_flow');
+  });
   it('resposta irreconhecível vira null (não muda estado)', () => {
     expect(interpretarRespostaFlow({})).toBeNull();
     expect(interpretarRespostaFlow({ decisao: 'xyz' })).toBeNull();

@@ -25,6 +25,9 @@ export function interpretarRespostaFlow(resposta: RespostaFlow): AcaoResposta {
   const dec = String(resposta?.decisao ?? resposta?.decisao_dados ?? '').toLowerCase();
   const oferta = String(resposta?.oferta ?? '').toLowerCase();
   if (dec.includes('corrigir')) return 'corrigir';
+  // Flow v6: o SERVIDOR ocultou o ticket (fora da janela) e o flow fecha com
+  // oferta='expirada' — checar ANTES dos outros branches de oferta.
+  if (oferta.includes('expir')) return 'expirou_flow';
   if (oferta.includes('recus') || oferta.includes('nao') || oferta.includes('não')) return 'recusou';
   if (oferta.includes('aceit') || oferta.includes('quero') || oferta.includes('sim')) return 'aceitou';
   if (dec.includes('confirmar') || dec.includes('ok')) return 'confirmou';
