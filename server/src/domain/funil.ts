@@ -681,6 +681,35 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
                          WHERE c.wa_upsell_id = wa_upsell.id AND c.status='aguardando_aprovacao')`,
       [ctx.cfg.WA_UPSELL_AUTO_CLOSE_HORAS],
     );
+    // Libera conversa de funil FECHADO sem interação há X min: destrava no
+    // TechSAC (volta pro fluxo normal do SAC) e o agente para de responder.
+    // liberada_em só marca quando o destravar FUNCIONOU (senão tenta de novo
+    // na próxima volta — conversa travada sem dono é cliente preso no limbo).
+    if (ctx.chatwoot) {
+      const paraLiberar = await ctx.db.query(
+        `SELECT c.id, c.chatwoot_conversation_id AS cid, w.store, w.order_id
+         FROM conversas c JOIN wa_upsell w ON w.id = c.wa_upsell_id
+         WHERE c.liberada_em IS NULL AND c.status='bot' AND w.status='closed'
+           AND w.store <> 'sandbox'
+           AND c.atualizado_em < now() - ($1 || ' minutes')::interval
+         LIMIT 20`,
+        [ctx.cfg.WA_UPSELL_LIBERA_CONVERSA_MIN],
+      );
+      for (const c of paraLiberar.rows) {
+        try {
+          if (c.cid) await ctx.chatwoot.destravarConversa(Number(c.cid));
+          await ctx.db.query('UPDATE conversas SET liberada_em=now(), atualizado_em=now() WHERE id=$1', [c.id]);
+          await espelhoNota(ctx, c.store, c.order_id, '🔓 Conversa liberada pro fluxo normal do SAC (funil encerrado, sem interação recente). O agente do upsell não responde mais aqui.');
+        } catch (e) {
+          await logEvento(ctx, c.store, {
+            erro: 'liberar_conversa_falhou',
+            conversa_id: c.id,
+            chatwoot_conversation_id: c.cid,
+            detalhe: String((e as Error).message).slice(0, 200),
+          });
+        }
+      }
+    }
   } catch {
     /* próxima volta */
   }

@@ -115,6 +115,7 @@ export async function processarMensagemCliente(
   const res = await resolverConversa(ctx, chatwootConversationId, fone);
   if (!res) return; // conversa fora do funil de upsell: não é nossa
   const { conversa, row } = res;
+  if (conversa.liberada_em) return; // conversa devolvida ao SAC normal: não é mais nossa
 
   await ctx.db.query('INSERT INTO mensagens_ia (conversa_id, direcao, texto) VALUES ($1,$2,$3)', [
     conversa.id, 'in', texto,

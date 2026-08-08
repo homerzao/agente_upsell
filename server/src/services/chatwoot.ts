@@ -63,6 +63,12 @@ export function criarChatwoot(
   }
 
   // Resposta do agente volta pelo Chatwoot (que entrega no WhatsApp).
+  // Destrava a conversa no TechSAC (lock do fluxo deles): resposta do cliente
+  // volta a cair na sessão normal do SAC. Rota custom do dev do TechSAC —
+  // PATCH {locked:false}; usa o conversation_id (o dev expôs no send_template).
+  const destravarConversa = (conversationId: number) =>
+    req('PATCH', `/conversations/${conversationId}`, { locked: false });
+
   const enviarMensagem = (conversationId: number, content: string, privada = false) =>
     req('POST', `/conversations/${conversationId}/messages`, {
       content,
@@ -97,6 +103,7 @@ export function criarChatwoot(
     buscarContatoPorFone,
     criarContato,
     buscarOuCriarConversa,
+    destravarConversa,
     enviarMensagem,
     listarMensagens,
     atribuirAgente,

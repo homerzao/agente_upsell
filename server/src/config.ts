@@ -56,6 +56,9 @@ const schema = z.object({
   WA_UPSELL_JANELA_MIN: z.coerce.number().default(25),
   // Auto-close SÓ do corrigir_sac (atendimento humano)
   WA_UPSELL_AUTO_CLOSE_HORAS: z.coerce.number().default(4),
+  // Conversa de funil FECHADO sem interação há X min: destrava no TechSAC e
+  // devolve pro fluxo normal do SAC (pedido do Jorge, 08/08)
+  WA_UPSELL_LIBERA_CONVERSA_MIN: z.coerce.number().default(60),
   // Chave privada RSA do NÚMERO (whatsapp_business_encryption) — a MESMA do
   // agente_ecom; NUNCA gerar par novo (quebraria o endpoint em produção).
   FLOW_PRIVATE_KEY: z.string().default(''),

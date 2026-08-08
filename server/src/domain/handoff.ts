@@ -25,6 +25,16 @@ export async function encaminharHumano(
     if (resumo) {
       await ctx.chatwoot.enviarMensagem(convId, `🤖➡️👤 Handoff (${motivo}).\n\nResumo: ${resumo}`, true);
     }
+    // Destrava no TechSAC: a resposta do cliente volta a cair na sessão normal
+    // do SAC (rota do dev). Se falhar, loga — o humano ainda acha pela label.
+    await ctx.chatwoot.destravarConversa(convId).catch(async (e) => {
+      await logEvento(ctx, 'hidrabene', {
+        erro: 'destravar_conversa_falhou',
+        conversa_id: conversa.id,
+        chatwoot_conversation_id: convId,
+        detalhe: String((e as Error).message).slice(0, 200),
+      });
+    });
   } catch (e) {
     await logEvento(ctx, 'hidrabene', {
       erro: 'handoff_chatwoot_falhou',
