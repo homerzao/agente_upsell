@@ -70,16 +70,9 @@ export function criarChatwoot(
       private: privada,
     });
 
-  // Espelho da mensagem do CLIENTE como NOTA INTERNA (padrão do dev do TechSAC).
-  // Inbox de WhatsApp NÃO aceita message_type incoming via API (422 "Api inboxes
-  // only") — e o TechSAC recebe a mensagem real pelo canal nativo dele; a nota é
-  // só contexto pro SAC. source_id marca a origem pra dedup.
-  const injetarMensagemCliente = (conversationId: number, content: string, sourceId: string) =>
-    req('POST', `/conversations/${conversationId}/messages`, {
-      content: `💬 Cliente: ${content}`,
-      private: true,
-      source_id: sourceId,
-    });
+  // (Sem espelho da fala do cliente: ela chega NATIVA no TechSAC pelo canal
+  //  próprio. Nota interna é só pro que o agente/funil ENVIA — enviarMensagem
+  //  com privada=true. Inbox WhatsApp rejeita incoming via API de toda forma.)
 
   const listarMensagens = async (conversationId: number): Promise<any[]> =>
     (await req('GET', `/conversations/${conversationId}/messages`)).payload ?? [];
@@ -105,7 +98,6 @@ export function criarChatwoot(
     criarContato,
     buscarOuCriarConversa,
     enviarMensagem,
-    injetarMensagemCliente,
     listarMensagens,
     atribuirAgente,
     atribuirTime,

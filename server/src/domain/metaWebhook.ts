@@ -51,15 +51,13 @@ async function processarTextoInbound(ctx: AgenteCtx, msg: any): Promise<void> {
   const cfgd = await getDisparosConfig(ctx);
   let convId: number | null = null;
   try {
+    // A fala do CLIENTE chega nativa no TechSAC (canal próprio dele) — NÃO
+    // espelhar (Jorge, 08/08: "nota interna não é pro que o cliente fala, é pra
+    // o que o agente fala com o cliente"). Aqui só garantimos a conversa.
     convId = await criarConversaChatwoot(ctx, row, cfgd.modo);
-    if (convId) {
-      // source_id marca a injeção: se algum canal nativo do Chatwoot também
-      // entregar, dá pra identificar a duplicata pelo prefixo waup-wa:
-      await ctx.chatwoot.injetarMensagemCliente(convId, texto, `waup-wa:${msg.id ?? ''}`);
-    }
   } catch (e) {
     await logEvento(ctx, row.store, {
-      erro: 'injecao_chatwoot_falhou',
+      erro: 'conversa_chatwoot_falhou',
       order_id: row.order_id,
       detalhe: String((e as Error).message).slice(0, 300),
     });

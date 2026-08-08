@@ -85,16 +85,15 @@ describe('processarWebhookMeta (firehose filtrado)', () => {
     expect(db.calls.length).toBe(chamadas); // nenhuma query nova
   });
 
-  it('texto de lead em contexto ativo: injeta no Chatwoot com source_id', async () => {
+  it('texto de lead em contexto ativo: garante a conversa SEM espelhar a fala do cliente', async () => {
+    // A fala do cliente chega nativa no TechSAC — nota interna é só pro que SAI
     const db = dbMeta({ rowContexto: {} });
     const cw = chatwootFake();
     const ctx: any = { ...ctxTeste({ db }), chatwoot: cw };
     await processarWebhookMeta(ctx, envelope({
       messages: [{ id: 'wamid.2', type: 'text', from: '5511987654321', text: { body: 'oi, cadê meu pix?' } }],
     }));
-    expect(cw.injetadas.length).toBe(1);
-    expect(cw.injetadas[0].content).toBe('oi, cadê meu pix?');
-    expect(cw.injetadas[0].sourceId).toBe('waup-wa:wamid.2');
+    expect(cw.injetadas.length).toBe(0); // nada de espelho do inbound
     expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('msg_cliente'))).toBe(true);
   });
 

@@ -264,9 +264,13 @@ export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise
       template_msg_id: r.messages?.[0]?.id ?? null,
       disparo_status: 'enviado',
     });
-    await criarConversaChatwoot(ctx, row, cfgd.modo).catch(async (e) => {
-      await logEvento(ctx, row.store, { erro: 'chatwoot_conversa_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
-    });
+    await criarConversaChatwoot(ctx, row, cfgd.modo).then(
+      () => espelhoNota(ctx, row.store, row.order_id,
+        `📨 Template de confirmação do pedido #${row.order_number ?? row.order_id} enviado pro cliente no WhatsApp (funil Ticket Dourado). Notas 🤖 abaixo = mensagens automáticas enviadas ao cliente.`),
+      async (e) => {
+        await logEvento(ctx, row.store, { erro: 'chatwoot_conversa_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+      },
+    );
   } catch (e) {
     await waupSet(ctx, row.store, row.order_id, { etapa: 'erro_disparo', disparo_status: 'erro' });
     await logEvento(ctx, row.store, { erro_disparo: String((e as Error).message).slice(0, 300), order_id: row.order_id });
@@ -297,6 +301,26 @@ export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, mod
 
 // Row do funil em CONTEXTO ATIVO pro fone: open, ou fechada há < 24h (pós-msg).
 // fora_do_fluxo nunca conta — é SAC comum, não é conversa nossa.
+// Espelho pro SAC: replica como NOTA INTERNA no Chatwoot o que saiu DIRETO pela
+// Meta — atendente que abrir a conversa vê o funil inteiro (pedido do Jorge,
+// 08/08/2026: "preciso que seja replicado como msg interna no chatwoot").
+// Best-effort: falha do espelho NUNCA derruba o funil.
+export async function espelhoNota(ctx: FunilCtx, store: string, orderId: number, texto: string): Promise<void> {
+  if (!ctx.chatwoot) return;
+  try {
+    const r = await ctx.db.query(
+      `SELECT c.chatwoot_conversation_id AS cid FROM conversas c
+       JOIN wa_upsell w ON w.id = c.wa_upsell_id
+       WHERE w.store=$1 AND w.order_id=$2 ORDER BY c.id DESC LIMIT 1`,
+      [store, orderId],
+    );
+    const cid = r.rows[0]?.cid;
+    if (cid) await ctx.chatwoot.enviarMensagem(Number(cid), texto, true);
+  } catch {
+    /* espelho é só contexto */
+  }
+}
+
 export async function buscarRowContextoAtivo(ctx: FunilCtx, fone: string): Promise<WaUpsellRow | null> {
   const dig = foneBr(fone);
   if (!dig) return null;
@@ -330,9 +354,12 @@ export async function enviarDespedida(ctx: FunilCtx, row: WaUpsellRow): Promise<
     numero: row.order_number ?? '',
   });
   if (!msg) return;
-  await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).catch(async (e) => {
-    await logEvento(ctx, row.store, { erro: 'msg_despedida_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
-  });
+  await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).then(
+    () => espelhoNota(ctx, row.store, row.order_id, `🤖 Enviado (WhatsApp): ${msg}`),
+    async (e) => {
+      await logEvento(ctx, row.store, { erro: 'msg_despedida_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+    },
+  );
 }
 
 export async function registrarResposta(ctx: FunilCtx, store: string, orderId: number, resposta: RespostaFlow): Promise<void> {
@@ -362,9 +389,12 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
         numero: row.order_number ?? '',
       });
       if (msg) {
-        await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).catch(async (e) => {
-          await logEvento(ctx, store, { erro: 'msg_corrigir_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
-        });
+        await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).then(
+          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n✏️ Cliente pediu CORREÇÃO de dados — conversa segue com o agente/atendimento.`),
+          async (e) => {
+            await logEvento(ctx, store, { erro: 'msg_corrigir_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+          },
+        );
       }
     }
     return;
@@ -414,9 +444,12 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
         numero: row.order_number ?? '',
       });
       if (msg) {
-        await ctx.meta.enviarTexto(destino(ctx, cfgdT.modo, row.customer_phone), msg).catch(async (e) => {
-          await logEvento(ctx, store, { erro: 'msg_aceite_tardio_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
-        });
+        await ctx.meta.enviarTexto(destino(ctx, cfgdT.modo, row.customer_phone), msg).then(
+          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n⏰ Cliente tentou aceitar a oferta FORA da janela.`),
+          async (e) => {
+            await logEvento(ctx, store, { erro: 'msg_aceite_tardio_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+          },
+        );
       }
     }
     return;
@@ -439,20 +472,23 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
   const fone = destino(ctx, cfgd.modo, row.customer_phone);
   const copies = oferta.copies ?? {};
   // Msg 1 sai NA HORA do aceite (resposta instantânea); o PIX gera logo em seguida.
-  await ctx.meta
-    .enviarTexto(fone, renderCopy(copies.msg_aceite ?? '', {
-      nome,
-      produto: oferta.nome,
-      preco: valorBr(oferta.preco),
-      minutos: ctx.cfg.WA_UPSELL_PIX_TTL_MIN,
-    }))
-    .catch(async (e) => {
+  const msgAceite = renderCopy(copies.msg_aceite ?? '', {
+    nome,
+    produto: oferta.nome,
+    preco: valorBr(oferta.preco),
+    minutos: ctx.cfg.WA_UPSELL_PIX_TTL_MIN,
+  });
+  await ctx.meta.enviarTexto(fone, msgAceite).then(
+    () => espelhoNota(ctx, store, orderId, `🏆 Cliente ACEITOU a oferta.\n\n🤖 Enviado (WhatsApp): ${msgAceite}`),
+    async (e) => {
       await logEvento(ctx, store, { erro: 'msg_aceite_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
-    });
+    },
+  );
 
   const msgInstabilidade = () =>
     ctx.meta
       .enviarTexto(fone, renderCopy(copies.msg_pix_instabilidade ?? '', { nome }))
+      .then(() => espelhoNota(ctx, store, orderId, '🤖 Enviado (WhatsApp): aviso de instabilidade no PIX (código não saiu — atenção do atendimento).'))
       .catch(async (e) => {
         // gotcha 7: até a mensagem de fallback loga a própria falha
         await logEvento(ctx, store, { erro: 'msg_instabilidade_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
@@ -497,6 +533,7 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
   // em mensagem de sessão separada pra facilitar copiar com 1 toque.
   try {
     await ctx.meta.enviarTexto(fone, pix.codigo);
+    await espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): código PIX copia-e-cola da oferta — R$ ${valorBr(oferta.preco)}, vale ${ctx.cfg.WA_UPSELL_PIX_TTL_MIN} min (charge ${pix.chargeId ?? '?'}).`);
   } catch (e) {
     await logEvento(ctx, store, { erro: 'pix_msg_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
   }
@@ -517,9 +554,12 @@ export async function reenviarPix(
   const cfgd = await getDisparosConfig(ctx);
   // PIX ainda vivo: reenvia o MESMO código (idempotente — nunca cobrar 2×)
   if (row.etapa === 'pix_enviado' && row.pix_codigo && row.pix_expira_em && new Date(row.pix_expira_em) > new Date()) {
-    await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), row.pix_codigo).catch(async (e) => {
-      await logEvento(ctx, store, { erro: 'reenvio_pix_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
-    });
+    await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), row.pix_codigo).then(
+      () => espelhoNota(ctx, store, orderId, '🤖 Reenviado (WhatsApp): mesmo código PIX (ainda válido).'),
+      async (e) => {
+        await logEvento(ctx, store, { erro: 'reenvio_pix_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+      },
+    );
     return { ok: true, reaproveitado: true };
   }
   // Expirado (ou fechado por expiração): reabre e gera PIX novo.
@@ -575,11 +615,16 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
     });
   }
   // Confirmação pro cliente: fecha o ciclo (🎉 + MESMO pedido + rastreio por aqui)
+  const msgPago = renderCopy(copies.msg_pago ?? '', { nome });
   await ctx.meta
-    .enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), renderCopy(copies.msg_pago ?? '', { nome }))
-    .catch(async (e) => {
-      await logEvento(ctx, row.store, { erro: 'confirmacao_pago_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
-    });
+    .enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msgPago)
+    .then(
+      () => espelhoNota(ctx, row.store, row.order_id,
+        `💰 OFERTA PAGA — R$ ${valorBr(valor)} via PIX (charge ${chargeId}). Faturamento adiciona o SKU ${oferta?.sku_yampi ?? '?'} ao pedido.\n\n🤖 Enviado (WhatsApp): ${msgPago}`),
+      async (e) => {
+        await logEvento(ctx, row.store, { erro: 'confirmacao_pago_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+      },
+    );
   return true;
 }
 
