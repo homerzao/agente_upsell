@@ -14,6 +14,7 @@ import { montarTemplateConfirma } from './template.js';
 import type { DisparosConfig, Oferta, RespostaFlow, WaUpsellRow } from './tipos.js';
 
 export const FILA_DISPARO = 'waup:fila_disparo';
+export const FILA_META = 'waup:fila_meta';
 
 export type RedisLike = {
   rpush(key: string, val: string): Promise<unknown>;
