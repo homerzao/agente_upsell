@@ -1,0 +1,36 @@
+// Utilitários compartilhados (puros — cobertos por teste).
+
+export const soDigitos = (s: unknown): string => String(s ?? '').replace(/\D/g, '');
+
+export const primeiroNome = (nome: unknown): string =>
+  (String(nome ?? '').trim().split(/\s+/)[0] || 'cliente');
+
+// Datas Yampi vêm em formato Carbon {date, timezone} em America/Sao_Paulo sem
+// offset -> normaliza para ISO com -03:00 fixo.
+export const carbon = (v: unknown): string | null => {
+  const s = (v && typeof v === 'object' ? (v as any).date : v) ?? null;
+  if (!s) return null;
+  return String(s).replace(' ', 'T').replace(/\.\d+$/, '') + '-03:00';
+};
+
+export const num = (v: unknown): number | null =>
+  v === null || v === undefined || v === '' ? null : Number(v);
+
+// O agente IA nunca ecoa CPF completo (guardrail de privacidade).
+export const mascararCpf = (cpf: unknown): string => {
+  const d = soDigitos(cpf);
+  if (d.length < 5) return '***';
+  return `${d.slice(0, 3)}***${d.slice(-2)}`;
+};
+
+// Renderização de copies: placeholders {{chave}} substituídos pelos dados.
+// Placeholder sem valor vira '' (nunca vaza "{{nome}}" pro cliente).
+export const renderCopy = (tpl: string, dados: Record<string, string | number | null | undefined>): string =>
+  tpl.replace(/\{\{(\w+)\}\}/g, (_, k) => {
+    const v = dados[k];
+    return v === null || v === undefined ? '' : String(v);
+  });
+
+export const valorBr = (v: number): string => v.toFixed(2).replace('.', ',');
+
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));

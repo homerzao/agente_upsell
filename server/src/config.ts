@@ -1,0 +1,76 @@
+import 'dotenv/config';
+import crypto from 'node:crypto';
+import { z } from 'zod';
+
+// Envs do sistema (valores com o Jorge; ver .env.example).
+// Integrações opcionais no boot: o sistema sobe sem elas e loga o que falta —
+// mas BACKEND_TOKEN, SESSION_SECRET e DATABASE_URL são obrigatórios.
+const schema = z.object({
+  PORT: z.coerce.number().default(3000),
+  NODE_ENV: z.string().default('development'),
+  LOG_LEVEL: z.string().default('info'),
+  APP_DOMAIN: z.string().default(''),
+  DATABASE_URL: z.string().min(1),
+  REDIS_URL: z.string().default('redis://localhost:6379'),
+
+  BACKEND_TOKEN: z.string().min(16),
+  STATUS_TOKEN: z.string().default(''),
+  SESSION_SECRET: z.string().min(16),
+
+  ADMIN_USER: z.string().default('admin'),
+  ADMIN_PASS_HASH: z.string().default(''),
+
+  METAWA_TOKEN: z.string().default(''),
+  METAWA_PHONE_ID: z.string().default(''),
+  METAWA_WABA_ID: z.string().default(''),
+  METAWA_VERIFY_TOKEN: z.string().default(''),
+  META_APP_SECRET: z.string().default(''),
+
+  CHATWOOT_URL: z.string().default(''),
+  CHATWOOT_ACCOUNT_ID: z.string().default(''),
+  CHATWOOT_API_TOKEN: z.string().default(''),
+  CHATWOOT_INBOX_ID: z.string().default(''),
+  CHATWOOT_AGENT_ID: z.string().default(''),
+  CHATWOOT_TEAM_ID: z.string().default(''),
+
+  YAMPI_ALIAS: z.string().default(''),
+  YAMPI_TOKEN: z.string().default(''),
+  YAMPI_SECRET: z.string().default(''),
+
+  PAGARME_SECRET_KEY: z.string().default(''),
+
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_MODEL: z.string().default('gpt-5.6-luna'),
+  OPENAI_PRECO_INPUT_1M: z.coerce.number().default(0),
+  OPENAI_PRECO_OUTPUT_1M: z.coerce.number().default(0),
+
+  WA_FONE_TESTE: z.string().default('5591992148793'),
+  WA_UPSELL_TEMPLATE_CONFIRMA: z.string().default('confirma_pedido_up_v4'),
+  WA_UPSELL_FLOW_ID: z.string().default('3351881904991012'),
+  WA_UPSELL_HEADER_MEDIA_ID: z.string().default(''),
+  WA_UPSELL_HEADER_URL: z.string().default(''),
+  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(5),
+  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(10),
+  WA_UPSELL_AUTO_CLOSE_HORAS: z.coerce.number().default(4),
+});
+
+export type Config = z.infer<typeof schema> & {
+  webhookTokenYampi: string;
+  webhookTokenPagarme: string;
+  webhookTokenChatwoot: string;
+};
+
+// Token fraco de URL de webhook: derivado por sha256 do BACKEND_TOKEN (um por origem).
+export function derivarTokenWebhook(backendToken: string, origem: string): string {
+  return crypto.createHash('sha256').update(`${backendToken}:webhook-${origem}`).digest('hex').slice(0, 32);
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const parsed = schema.parse(env);
+  return {
+    ...parsed,
+    webhookTokenYampi: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'yampi'),
+    webhookTokenPagarme: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'pagarme'),
+    webhookTokenChatwoot: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'chatwoot'),
+  };
+}

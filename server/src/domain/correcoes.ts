@@ -1,0 +1,252 @@
+// Correções de dados do pedido com APROVAÇÃO HUMANA obrigatória.
+// Fluxo: agente coleta -> registro aguardando_aprovacao (ANTES + DEPOIS + PUT exato)
+//        -> operador aprova no painel -> aplica na Yampi -> verifica lendo de volta
+//        -> avisa o cliente -> fecha. NUNCA aplicar update na Yampi sem aprovação.
+// GOTCHA 13: PUT Yampi = corpo COMPLETO espelhado — campos omitidos são ZERADOS.
+import { primeiroNome, renderCopy, soDigitos } from '../lib/util.js';
+import { destinoMensagem } from './estados.js';
+import { getDisparosConfig, getOferta, getRow, logEvento, waupSet, type FunilCtx } from './funil.js';
+import { normalizarPedidoYampi } from './funil.js';
+import type { WaUpsellRow } from './tipos.js';
+
+export type CamposCorrecao = {
+  nome?: string;
+  email?: string;
+  endereco?: {
+    zip_code?: string;
+    street?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    receiver?: string;
+  };
+};
+
+export type PutYampi = { recurso: 'customer' | 'order_address'; id: number | string; order_id?: number; body: Record<string, unknown> };
+
+// Corpo COMPLETO espelhado a partir do recurso atual: mantém todos os campos
+// escalares, descarta envelopes de relação ({data:...}) e timestamps Carbon,
+// e aplica só as mudanças pedidas. Puro — coberto por teste.
+export function montarBodyEspelhado(atual: Record<string, any>, mudancas: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(atual ?? {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if ('data' in v) continue; // relação incluída no GET (readonly)
+      if ('date' in v && 'timezone' in v) continue; // Carbon {date, timezone}
+      body[k] = v;
+      continue;
+    }
+    body[k] = v;
+  }
+  delete body.created_at;
+  delete body.updated_at;
+  for (const [k, v] of Object.entries(mudancas)) {
+    if (v !== undefined) body[k] = v;
+  }
+  return body;
+}
+
+// Divide nome completo em first/last (formato do customer da Yampi).
+export function splitNome(nome: string): { first_name: string; last_name: string } {
+  const partes = String(nome).trim().split(/\s+/);
+  return { first_name: partes[0] ?? '', last_name: partes.slice(1).join(' ') };
+}
+
+export async function registrarCorrecao(
+  ctx: FunilCtx,
+  store: string,
+  orderId: number,
+  campos: CamposCorrecao,
+): Promise<{ ok: boolean; correcaoId?: number; erro?: string }> {
+  const row = await getRow(ctx, store, orderId);
+  if (!row) return { ok: false, erro: 'pedido fora do fluxo' };
+  if (!campos.nome && !campos.email && !campos.endereco) return { ok: false, erro: 'nenhum campo para corrigir' };
+
+  // Lê o estado ATUAL na Yampi (antes) e monta os PUTs exatos que serão aplicados
+  let pedido: any;
+  try {
+    pedido = await ctx.yampi.getOrder(orderId);
+  } catch (e) {
+    return { ok: false, erro: `falha ao ler pedido na Yampi: ${String((e as Error).message).slice(0, 200)}` };
+  }
+  const p = normalizarPedidoYampi(pedido);
+  const cust = pedido.customer?.data ?? pedido.customer ?? {};
+  const antes: Record<string, unknown> = {};
+  const depois: Record<string, unknown> = {};
+  const puts: PutYampi[] = [];
+
+  if (campos.nome || campos.email) {
+    if (!cust.id) return { ok: false, erro: 'pedido sem customer id na Yampi' };
+    let clienteAtual: any;
+    try {
+      clienteAtual = await ctx.yampi.getCustomer(cust.id);
+    } catch (e) {
+      return { ok: false, erro: `falha ao ler cliente na Yampi: ${String((e as Error).message).slice(0, 200)}` };
+    }
+    const mudancas: Record<string, unknown> = {};
+    if (campos.nome) {
+      const { first_name, last_name } = splitNome(campos.nome);
+      mudancas.first_name = first_name;
+      mudancas.last_name = last_name;
+      antes.nome = clienteAtual.name ?? [clienteAtual.first_name, clienteAtual.last_name].filter(Boolean).join(' ');
+      depois.nome = campos.nome;
+    }
+    if (campos.email) {
+      mudancas.email = campos.email;
+      antes.email = clienteAtual.email ?? null;
+      depois.email = campos.email;
+    }
+    puts.push({ recurso: 'customer', id: cust.id, body: montarBodyEspelhado(clienteAtual, mudancas) });
+  }
+
+  if (campos.endereco) {
+    let enderecos: any[];
+    try {
+      enderecos = await ctx.yampi.getOrderAddresses(orderId);
+    } catch (e) {
+      return { ok: false, erro: `falha ao ler endereços do pedido: ${String((e as Error).message).slice(0, 200)}` };
+    }
+    const alvo = enderecos[0];
+    if (!alvo?.id) return { ok: false, erro: 'pedido sem endereço de entrega na Yampi' };
+    const mudancas: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(campos.endereco)) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') mudancas[k] = v;
+    }
+    antes.endereco = {
+      zip_code: alvo.zip_code ?? null, street: alvo.street ?? null, number: alvo.number ?? null,
+      complement: alvo.complement ?? null, neighborhood: alvo.neighborhood ?? null,
+      city: alvo.city ?? null, state: alvo.state ?? alvo.uf ?? null, receiver: alvo.receiver ?? null,
+    };
+    depois.endereco = { ...(antes.endereco as object), ...mudancas };
+    puts.push({ recurso: 'order_address', id: alvo.id, order_id: orderId, body: montarBodyEspelhado(alvo, mudancas) });
+  }
+
+  const ins = await ctx.db.query(
+    `INSERT INTO correcoes (wa_upsell_id, campos_antes, campos_depois, put_yampi, status)
+     VALUES ($1,$2,$3,$4,'aguardando_aprovacao') RETURNING id`,
+    [row.id, antes, depois, { puts }],
+  );
+  await waupSet(ctx, store, orderId, { etapa: 'corrigir_sac' });
+  return { ok: true, correcaoId: ins.rows[0].id };
+}
+
+async function rowDaCorrecao(ctx: FunilCtx, correcaoId: number): Promise<{ correcao: any; row: WaUpsellRow } | null> {
+  const c = await ctx.db.query('SELECT * FROM correcoes WHERE id=$1', [correcaoId]);
+  if (!c.rows.length) return null;
+  const w = await ctx.db.query('SELECT * FROM wa_upsell WHERE id=$1', [c.rows[0].wa_upsell_id]);
+  if (!w.rows.length) return null;
+  return { correcao: c.rows[0], row: w.rows[0] as WaUpsellRow };
+}
+
+// Compara o que foi lido de volta com o que deveria ter sido gravado.
+export function verificarReadback(bodyEnviado: Record<string, unknown>, lido: Record<string, any>, chaves: string[]): string[] {
+  const divergentes: string[] = [];
+  for (const k of chaves) {
+    const esperado = String(bodyEnviado[k] ?? '').trim();
+    const atual = String(lido?.[k] ?? '').trim();
+    if (esperado !== atual) divergentes.push(k);
+  }
+  return divergentes;
+}
+
+export async function aprovarCorrecao(
+  ctx: FunilCtx,
+  correcaoId: number,
+  usuario: string,
+): Promise<{ ok: boolean; erro?: string }> {
+  const res = await rowDaCorrecao(ctx, correcaoId);
+  if (!res) return { ok: false, erro: 'correção não encontrada' };
+  const { correcao, row } = res;
+  if (correcao.status !== 'aguardando_aprovacao') return { ok: false, erro: `status inválido: ${correcao.status}` };
+
+  await ctx.db.query(
+    `UPDATE correcoes SET status='aprovada', aprovador=$2, decidido_em=now() WHERE id=$1`,
+    [correcaoId, usuario],
+  );
+
+  const puts: PutYampi[] = correcao.put_yampi?.puts ?? [];
+  const depois = correcao.campos_depois ?? {};
+  try {
+    for (const put of puts) {
+      if (put.recurso === 'customer') {
+        await ctx.yampi.putCustomer(put.id, put.body);
+        // read-back: confere que os campos pedidos realmente mudaram
+        const lido = await ctx.yampi.getCustomer(put.id);
+        const chaves = Object.keys(put.body).filter((k) => ['first_name', 'last_name', 'email'].includes(k));
+        const div = verificarReadback(put.body, lido, chaves);
+        if (div.length) throw new Error(`read-back divergente (customer): ${div.join(', ')}`);
+      } else {
+        await ctx.yampi.putOrderAddress(put.order_id ?? row.order_id, put.id, put.body);
+        const lidos = await ctx.yampi.getOrderAddresses(put.order_id ?? row.order_id);
+        const lido = lidos.find((a: any) => String(a.id) === String(put.id)) ?? lidos[0];
+        const chaves = Object.keys((depois.endereco as object) ?? {});
+        const div = verificarReadback(put.body, lido, chaves.filter((k) => k in put.body));
+        if (div.length) throw new Error(`read-back divergente (endereço): ${div.join(', ')}`);
+      }
+    }
+  } catch (e) {
+    await ctx.db.query(`UPDATE correcoes SET status='erro_aplicacao', motivo=$2 WHERE id=$1`, [
+      correcaoId,
+      String((e as Error).message).slice(0, 300),
+    ]);
+    await logEvento(ctx, row.store, { erro: 'correcao_aplicacao_falhou', correcao_id: correcaoId, detalhe: String((e as Error).message).slice(0, 300) });
+    return { ok: false, erro: String((e as Error).message).slice(0, 300) };
+  }
+
+  await ctx.db.query(`UPDATE correcoes SET status='aplicada', aplicado_em=now() WHERE id=$1`, [correcaoId]);
+
+  // Avisa o cliente e fecha a row (correção resolvida libera o faturamento)
+  const cfgd = await getDisparosConfig(ctx);
+  const oferta = await getOferta(ctx, row.oferta_id);
+  const resumo = Object.entries(depois)
+    .map(([k, v]) => (k === 'endereco' ? 'endereço de entrega' : `${k}: ${String(v)}`))
+    .join(', ');
+  const msg = renderCopy(oferta?.copies?.msg_correcao_aplicada ?? '', {
+    nome: primeiroNome(row.customer_name),
+    numero: row.order_number ?? '',
+    resumo,
+  });
+  if (msg) {
+    await ctx.meta
+      .enviarTexto(destinoMensagem(cfgd.modo, soDigitos(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
+      .catch(async (e) => {
+        await logEvento(ctx, row.store, { erro: 'msg_correcao_aplicada_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+      });
+  }
+  await waupSet(ctx, row.store, row.order_id, { status: 'closed', etapa: 'corrigido' });
+  await ctx.db.query('INSERT INTO auditoria (usuario, acao, alvo, payload) VALUES ($1,$2,$3,$4)', [
+    usuario, 'correcao_aprovada_aplicada', `correcao:${correcaoId}`, { order_id: row.order_id, depois },
+  ]);
+  return { ok: true };
+}
+
+export async function rejeitarCorrecao(
+  ctx: FunilCtx,
+  correcaoId: number,
+  usuario: string,
+  motivo: string,
+): Promise<{ ok: boolean; erro?: string }> {
+  const res = await rowDaCorrecao(ctx, correcaoId);
+  if (!res) return { ok: false, erro: 'correção não encontrada' };
+  const { correcao, row } = res;
+  if (correcao.status !== 'aguardando_aprovacao') return { ok: false, erro: `status inválido: ${correcao.status}` };
+  await ctx.db.query(
+    `UPDATE correcoes SET status='rejeitada', aprovador=$2, motivo=$3, decidido_em=now() WHERE id=$1`,
+    [correcaoId, usuario, motivo || null],
+  );
+  // Avisa o cliente e encaminha ao humano (a row segue open/corrigir_sac até o SAC fechar)
+  const cfgd = await getDisparosConfig(ctx);
+  const oferta = await getOferta(ctx, row.oferta_id);
+  const msg = renderCopy(oferta?.copies?.msg_correcao_rejeitada ?? '', { nome: primeiroNome(row.customer_name) });
+  if (msg) {
+    await ctx.meta
+      .enviarTexto(destinoMensagem(cfgd.modo, soDigitos(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
+      .catch(() => {});
+  }
+  await ctx.db.query('INSERT INTO auditoria (usuario, acao, alvo, payload) VALUES ($1,$2,$3,$4)', [
+    usuario, 'correcao_rejeitada', `correcao:${correcaoId}`, { order_id: row.order_id, motivo },
+  ]);
+  return { ok: true };
+}

@@ -1,0 +1,64 @@
+// Regras puras da máquina de estados (sem IO — cobertas por teste).
+import type { AcaoResposta, DisparosConfig, RespostaFlow } from './tipos.js';
+import { soDigitos } from '../lib/util.js';
+
+// Família "paga" da Yampi: pagamento confirmado em qualquer fase pós-pagamento.
+export const FAMILIA_PAGA = [
+  'paid', 'invoiced', 'ready_for_shipping', 'on_carriage',
+  'delivered', 'shipment_exception', 'handling_products',
+] as const;
+
+export const ehStatusPago = (status: string | null | undefined): boolean =>
+  FAMILIA_PAGA.includes(String(status ?? '') as any);
+
+// Disparo SÓ na transição para a família paga (nunca re-dispara).
+export const ehTransicaoParaPago = (
+  statusAnterior: string | null | undefined,
+  statusNovo: string | null | undefined,
+): boolean => !ehStatusPago(statusAnterior) && ehStatusPago(statusNovo);
+
+// Interpretação da resposta do Flow (nfm_reply) — lógica validada do agente_ecom,
+// com a recusa checada ANTES do aceite: "nao_quero" contém "quero" e era
+// classificado como aceite na ordem original (os valores reais do flow —
+// "aceitar"/"recusar" — se comportam igual nas duas ordens).
+export function interpretarRespostaFlow(resposta: RespostaFlow): AcaoResposta {
+  const dec = String(resposta?.decisao ?? resposta?.decisao_dados ?? '').toLowerCase();
+  const oferta = String(resposta?.oferta ?? '').toLowerCase();
+  if (dec.includes('corrigir')) return 'corrigir';
+  if (oferta.includes('recus') || oferta.includes('nao') || oferta.includes('não')) return 'recusou';
+  if (oferta.includes('aceit') || oferta.includes('quero') || oferta.includes('sim')) return 'aceitou';
+  if (dec.includes('confirmar') || dec.includes('ok')) return 'confirmou';
+  return null;
+}
+
+export type DecisaoDisparo =
+  | { elegivel: true }
+  | { elegivel: false; motivo: 'pausado' | 'cpf_fora_do_filtro' | 'amostra_esgotada' | 'sem_oferta_ativa' };
+
+// Elegibilidade do disparo controlado. Pedido NÃO elegível AINDA é registrado
+// (closed/fora_do_fluxo): o faturamento consulta qualquer pedido e sempre recebe resposta.
+export function decidirDisparo(cfg: DisparosConfig, cpf: string | null | undefined, temOfertaAtiva: boolean): DecisaoDisparo {
+  if (cfg.pausado) return { elegivel: false, motivo: 'pausado' };
+  if (!temOfertaAtiva) return { elegivel: false, motivo: 'sem_oferta_ativa' };
+  if (cfg.amostra_restante !== null && cfg.amostra_restante <= 0) {
+    return { elegivel: false, motivo: 'amostra_esgotada' };
+  }
+  const filtro = (cfg.cpf_filtro ?? []).map(soDigitos).filter(Boolean);
+  if (filtro.length && !filtro.includes(soDigitos(cpf))) {
+    return { elegivel: false, motivo: 'cpf_fora_do_filtro' };
+  }
+  return { elegivel: true };
+}
+
+// Modo test = TODAS as mensagens vão pro número de teste (Jorge), independente
+// do destinatário real. live SÓ com decisão explícita no painel.
+export const destinoMensagem = (modo: 'test' | 'live', foneCliente: string, foneTeste: string): string =>
+  modo === 'live' ? foneCliente : foneTeste;
+
+// flow_token do template: "store:order_id"
+export const parseFlowToken = (token: unknown): { store: string; orderId: number } | null => {
+  const [st, oid] = String(token ?? '').split(':');
+  const n = Number(oid);
+  if (!st || !oid || !Number.isFinite(n) || n <= 0) return null;
+  return { store: st, orderId: n };
+};

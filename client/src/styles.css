@@ -1,0 +1,120 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --panel2: #1e222b;
+  --border: #2a2f3a;
+  --texto: #e8eaf0;
+  --texto2: #9aa3b2;
+  --ouro: #e8b64c;
+  --verde: #4cc38a;
+  --vermelho: #e5534b;
+  --azul: #539bf5;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--texto);
+  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+a { color: var(--azul); text-decoration: none; }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; flex-shrink: 0; background: var(--panel);
+  border-right: 1px solid var(--border); padding: 16px 0; position: sticky; top: 0; height: 100vh;
+}
+.sidebar .logo { font-weight: 700; font-size: 15px; padding: 0 20px 16px; color: var(--ouro); }
+.sidebar nav a {
+  display: block; padding: 9px 20px; color: var(--texto2); border-left: 3px solid transparent;
+}
+.sidebar nav a:hover { color: var(--texto); }
+.sidebar nav a.ativo { color: var(--ouro); border-left-color: var(--ouro); background: #e8b64c11; }
+.sidebar .rodape { position: absolute; bottom: 16px; left: 0; right: 0; padding: 0 20px; }
+
+.conteudo { flex: 1; padding: 24px 28px; max-width: 1280px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 24px 0 10px; }
+.sub { color: var(--texto2); margin-bottom: 20px; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+}
+.card .rotulo { color: var(--texto2); font-size: 12px; }
+.card .valor { font-size: 22px; font-weight: 700; margin-top: 2px; }
+.card .valor.ouro { color: var(--ouro); }
+.card .valor.verde { color: var(--verde); }
+
+.painel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-top: 16px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--texto2); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid #2a2f3a55; vertical-align: top; }
+tr:hover td { background: #ffffff06; }
+
+.etiqueta { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); white-space: nowrap; }
+.etiqueta.pago { color: var(--verde); border-color: var(--verde); }
+.etiqueta.open { color: var(--ouro); border-color: var(--ouro); }
+.etiqueta.erro { color: var(--vermelho); border-color: var(--vermelho); }
+
+button, .botao {
+  background: var(--panel2); color: var(--texto); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 14px; cursor: pointer; font-size: 13px;
+}
+button:hover { border-color: var(--texto2); }
+button.primario { background: var(--ouro); color: #1a1503; border-color: var(--ouro); font-weight: 600; }
+button.perigo { background: transparent; color: var(--vermelho); border-color: var(--vermelho); }
+button.ok { background: var(--verde); color: #04220f; border-color: var(--verde); font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+input, select, textarea {
+  background: var(--panel2); color: var(--texto); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--ouro); }
+label { display: block; color: var(--texto2); font-size: 12px; margin-bottom: 4px; }
+.campo { margin-bottom: 14px; }
+.linha { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+
+.login-wrap { display: grid; place-items: center; min-height: 100vh; }
+.login-box { width: 340px; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 28px; }
+.login-box h1 { color: var(--ouro); }
+
+.erro-msg { color: var(--vermelho); margin-top: 8px; font-size: 13px; }
+.ok-msg { color: var(--verde); margin-top: 8px; font-size: 13px; }
+
+.diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px; }
+.diff .antes { background: #e5534b14; border: 1px solid #e5534b44; border-radius: 8px; padding: 10px; }
+.diff .depois { background: #4cc38a14; border: 1px solid #4cc38a44; border-radius: 8px; padding: 10px; }
+.diff h4 { margin: 0 0 6px; font-size: 12px; color: var(--texto2); }
+.diff pre { margin: 0; white-space: pre-wrap; font-size: 12px; }
+
+.grafico { display: flex; align-items: flex-end; gap: 6px; height: 140px; padding-top: 10px; }
+.grafico .barra-grupo { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.grafico .barras { display: flex; align-items: flex-end; gap: 2px; height: 110px; }
+.grafico .barra { width: 10px; border-radius: 3px 3px 0 0; min-height: 2px; }
+.grafico .dia { font-size: 10px; color: var(--texto2); white-space: nowrap; }
+
+.chat { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.msg { max-width: 75%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; font-size: 13px; }
+.msg.in { background: var(--panel2); align-self: flex-start; }
+.msg.out { background: #e8b64c22; border: 1px solid #e8b64c44; align-self: flex-end; }
+.msg .meta { font-size: 11px; color: var(--texto2); margin-top: 4px; }
+
+.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.copiar { cursor: pointer; }
+.aviso { background: #e8b64c14; border: 1px solid #e8b64c44; border-radius: 8px; padding: 10px 14px; margin: 12px 0; font-size: 13px; }
+.kill { display: flex; align-items: center; gap: 12px; }
+.interruptor { position: relative; width: 46px; height: 24px; }
+.interruptor input { display: none; }
+.interruptor span {
+  position: absolute; inset: 0; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 20px; cursor: pointer; transition: 0.2s;
+}
+.interruptor span::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--texto2); transition: 0.2s;
+}
+.interruptor input:checked + span { background: var(--verde); border-color: var(--verde); }
+.interruptor input:checked + span::after { left: 24px; background: #fff; }

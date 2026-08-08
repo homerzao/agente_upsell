@@ -1,0 +1,67 @@
+name: CI + Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install
+      - name: Typecheck server
+        run: npx tsc --noEmit
+        working-directory: server
+      - name: Tests server
+        run: npx vitest run
+        working-directory: server
+      - name: Typecheck client
+        run: npx tsc --noEmit
+        working-directory: client
+      - name: Build client
+        run: npx vite build
+        working-directory: client
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        env:
+          # Chave privada em base64 (linha única) — evita corrupção de
+          # newlines no transporte do secret.
+          SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
+          HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s' "$SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 10 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || echo "keyscan falhou; seguindo com accept-new"
+          ok=0
+          for i in $(seq 1 8); do
+            if ssh -i ~/.ssh/deploy_key \
+                 -o StrictHostKeyChecking=accept-new \
+                 -o ConnectTimeout=30 \
+                 -o ServerAliveInterval=10 \
+                 "root@$HOST" 'bash /opt/agente_upsell/deploy.sh'; then
+              ok=1; break
+            fi
+            echo "ssh tentativa $i falhou; aguardando 20s..."
+            sleep 20
+          done
+          if [ "$ok" != 1 ]; then
+            echo "deploy falhou apos 8 tentativas"
+            exit 1
+          fi

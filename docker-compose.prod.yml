@@ -1,0 +1,85 @@
+# Produção — servidor compartilhado com EasyPanel/Traefik (mesmo padrão do LucroFrete).
+#
+# NÃO publica nenhuma porta no host: o app entra na rede overlay `easypanel`
+# (attachable) e o Traefik do EasyPanel roteia ${APP_DOMAIN} via labels.
+# Postgres/Redis ficam só na rede interna deste compose.
+#
+# Segredos vêm do /opt/agente_upsell/.env (não versionado).
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://agente_upsell:${POSTGRES_PASSWORD}@postgres:5432/agente_upsell
+      - REDIS_URL=redis://redis:6379
+      - PORT=3000
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - internal
+      - easypanel
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=easypanel
+      # HTTPS
+      - traefik.http.routers.agenteupsell-https.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.agenteupsell-https.entrypoints=https
+      - traefik.http.routers.agenteupsell-https.tls=true
+      - traefik.http.routers.agenteupsell-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.agenteupsell-https.service=agenteupsell
+      - traefik.http.services.agenteupsell.loadbalancer.server.port=3000
+      # HTTP -> HTTPS
+      - traefik.http.routers.agenteupsell-http.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.agenteupsell-http.entrypoints=http
+      - traefik.http.routers.agenteupsell-http.service=agenteupsell
+      - traefik.http.routers.agenteupsell-http.middlewares=agenteupsell-redirect
+      - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.permanent=true
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: agente-upsell-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=agente_upsell
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=agente_upsell
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agente_upsell"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: agente-upsell-redis
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks:
+      - internal
+
+networks:
+  internal:
+  easypanel:
+    external: true
+
+volumes:
+  pgdata:
+  redisdata:
