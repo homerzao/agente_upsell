@@ -8,7 +8,7 @@ import type { YampiService } from '../services/yampi.js';
 import type { PagarmeService } from '../services/pagarme.js';
 import type { ChatwootService } from '../services/chatwoot.js';
 import { LABEL_UPSELL } from '../services/chatwoot.js';
-import { carbon, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
+import { carbon, foneBr, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
 import { decidirDisparo, destinoMensagem, ehTransicaoParaPago, interpretarRespostaFlow } from './estados.js';
 import { montarTemplateConfirma } from './template.js';
 import type { DisparosConfig, Oferta, RespostaFlow, WaUpsellRow } from './tipos.js';
@@ -118,7 +118,7 @@ export function normalizarPedidoYampi(o: any): {
     numero: String(o.number ?? ''),
     status,
     nome: cust.name ?? ([cust.first_name, cust.last_name].filter(Boolean).join(' ') || null),
-    fone: soDigitos(cust.phone?.full_number ?? cust.phone ?? ''),
+    fone: foneBr(cust.phone?.full_number ?? cust.phone ?? ''),
     cpf: soDigitos(cust.cpf ?? cust.document ?? ''),
     email: cust.email ?? null,
     endereco,
@@ -127,7 +127,7 @@ export function normalizarPedidoYampi(o: any): {
 }
 
 const destino = (ctx: FunilCtx, modo: 'test' | 'live', fone: string | null) =>
-  destinoMensagem(modo, soDigitos(fone), ctx.cfg.WA_FONE_TESTE);
+  destinoMensagem(modo, foneBr(fone), ctx.cfg.WA_FONE_TESTE);
 
 /* ===== 0. Pedido Yampi entrou (webhook order.*) ===== */
 
@@ -298,11 +298,13 @@ export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, mod
 // Row do funil em CONTEXTO ATIVO pro fone: open, ou fechada há < 24h (pós-msg).
 // fora_do_fluxo nunca conta — é SAC comum, não é conversa nossa.
 export async function buscarRowContextoAtivo(ctx: FunilCtx, fone: string): Promise<WaUpsellRow | null> {
-  const dig = soDigitos(fone);
+  const dig = foneBr(fone);
   if (!dig) return null;
+  // Fallback pelos últimos 11 dígitos (DDD+9+número): cobre row legada gravada
+  // sem DDI e o caso da Meta mandar o número sem o nono dígito.
   const r = await ctx.db.query(
     `SELECT * FROM wa_upsell
-     WHERE customer_phone=$1 AND store='hidrabene'
+     WHERE (customer_phone = $1 OR right($1, 11) = right(customer_phone, 11)) AND store='hidrabene'
        AND etapa <> 'fora_do_fluxo' AND disparo_status IS NOT NULL
        AND (status='open' OR atualizado_em > now() - interval '24 hours')
      ORDER BY criado_em DESC LIMIT 1`,

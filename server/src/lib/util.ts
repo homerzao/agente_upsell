@@ -2,6 +2,15 @@
 
 export const soDigitos = (s: unknown): string => String(s ?? '').replace(/\D/g, '');
 
+// Fone brasileiro normalizado em dígitos E.164 (SEMPRE com DDI 55).
+// A Yampi manda o fone nacional (DDD+número, 10-11 dígitos); a Meta manda com 55.
+// Sem isso o match webhook×row falha e o envio em modo live iria pro número errado.
+export const foneBr = (s: unknown): string => {
+  const d = soDigitos(s);
+  if (d.length === 10 || d.length === 11) return `55${d}`; // nacional -> +55
+  return d; // já com DDI (12-13 dígitos) ou vazio/estrangeiro: mantém
+};
+
 export const primeiroNome = (nome: unknown): string =>
   (String(nome ?? '').trim().split(/\s+/)[0] || 'cliente');
 
