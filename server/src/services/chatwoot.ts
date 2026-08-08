@@ -20,7 +20,9 @@ export function criarChatwoot(
   fetchFn: FetchFn = fetch,
 ) {
   const base = `${cfg.CHATWOOT_URL.replace(/\/$/, '')}/api/v1/accounts/${cfg.CHATWOOT_ACCOUNT_ID}`;
-  const headers = { 'Content-Type': 'application/json', api_access_token: cfg.CHATWOOT_API_TOKEN };
+  // Header com HÍFEN de propósito: o nginx na frente do TechSAC descarta headers
+  // com underscore; o Rack normaliza api-access-token -> api_access_token lá dentro.
+  const headers = { 'Content-Type': 'application/json', 'api-access-token': cfg.CHATWOOT_API_TOKEN };
 
   async function req(method: string, path: string, body?: unknown): Promise<any> {
     const r = await fetchFn(`${base}${path}`, {
