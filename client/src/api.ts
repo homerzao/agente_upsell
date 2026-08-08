@@ -19,7 +19,8 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     if (r.status === 401 && !path.includes('/auth/')) window.location.href = '/login';
-    throw new ApiError(r.status, (j as any).error ?? `HTTP ${r.status}`);
+    // respostas de negócio usam "erro"; auth/infra usam "error"
+    throw new ApiError(r.status, (j as any).erro ?? (j as any).error ?? `HTTP ${r.status}`);
   }
   return j as T;
 }

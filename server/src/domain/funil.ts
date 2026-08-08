@@ -169,11 +169,23 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   );
   if (!ins.rows.length) return; // já iniciado (nunca re-dispara)
   if (!decisao.elegivel) return; // registrado para consulta; nenhum disparo
-  // Amostragem: "disparar para os próximos N pedidos" e pausar quando zerar
+  // Amostragem: gate ATÔMICO — só consome slot se ainda houver (dois webhooks
+  // simultâneos com amostra=1 não podem virar 2 disparos)
   if (cfgd.amostra_restante !== null) {
-    await ctx.db.query(
-      'UPDATE disparos_config SET amostra_restante = GREATEST(amostra_restante - 1, 0), atualizado_em=now() WHERE id=1 AND amostra_restante IS NOT NULL',
+    const gate = await ctx.db.query(
+      `UPDATE disparos_config SET amostra_restante = amostra_restante - 1, atualizado_em=now()
+       WHERE id=1 AND amostra_restante IS NOT NULL AND amostra_restante > 0
+       RETURNING amostra_restante`,
     );
+    if (!gate.rows.length) {
+      // perdeu a corrida: reverte a row pra fora_do_fluxo e não dispara
+      await ctx.db.query(
+        `UPDATE wa_upsell SET status='closed', etapa='fora_do_fluxo', disparo_status=NULL, atualizado_em=now()
+         WHERE store=$1 AND order_id=$2`,
+        [store, p.orderId],
+      );
+      return;
+    }
   }
   await ctx.redis.rpush(FILA_DISPARO, JSON.stringify({ store, order_id: p.orderId }));
 }
@@ -186,10 +198,11 @@ export function chaveRateHora(agora: Date = new Date()): string {
 }
 
 // Drena a fila respeitando pausa e rate/hora. Chamado pelo sweeper (5s).
+// A config é relida A CADA item: o kill switch precisa valer no meio do drain.
 export async function processarFilaDisparo(ctx: FunilCtx): Promise<void> {
-  const cfgd = await getDisparosConfig(ctx);
-  if (cfgd.pausado) return; // kill switch: fila fica esperando
   for (;;) {
+    const cfgd = await getDisparosConfig(ctx);
+    if (cfgd.pausado) return; // kill switch: fila fica esperando
     if (cfgd.rate_por_hora > 0) {
       const usados = Number((await ctx.redis.get(chaveRateHora())) ?? 0);
       if (usados >= cfgd.rate_por_hora) return; // orçamento da hora esgotado
@@ -281,9 +294,16 @@ export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, mod
 
 export async function registrarResposta(ctx: FunilCtx, store: string, orderId: number, resposta: RespostaFlow): Promise<void> {
   const acao = interpretarRespostaFlow(resposta);
+  // Flow pode ser re-executado (outra aba, replay do webhook): resposta tardia
+  // NUNCA sobrescreve um pagamento já confirmado.
+  const atual = await getRow(ctx, store, orderId);
+  if (atual?.etapa === 'pago') return;
   if (acao === 'corrigir') {
-    // segue open: agente IA coleta a correção; aprovação humana aplica e fecha
-    await waupSet(ctx, store, orderId, { etapa: 'corrigir_sac' });
+    // segue open: agente IA coleta a correção; aprovação humana aplica e fecha.
+    // status open EXPLÍCITO: se o clique vier depois do auto-close de 4h, a row
+    // reabre — pedido em correção NUNCA pode faturar (closed/corrigir_sac seria
+    // lido pelo faturamento como "pode faturar").
+    await waupSet(ctx, store, orderId, { status: 'open', etapa: 'corrigir_sac' });
     const row = await getRow(ctx, store, orderId);
     if (row) {
       const cfgd = await getDisparosConfig(ctx);
@@ -351,7 +371,10 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
   const msgInstabilidade = () =>
     ctx.meta
       .enviarTexto(fone, renderCopy(copies.msg_pix_instabilidade ?? '', { nome }))
-      .catch(() => {});
+      .catch(async (e) => {
+        // gotcha 7: até a mensagem de fallback loga a própria falha
+        await logEvento(ctx, store, { erro: 'msg_instabilidade_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+      });
 
   let pix: { chargeId: string | null; codigo: string };
   try {
@@ -407,6 +430,8 @@ export async function reenviarPix(
   const row = await getRow(ctx, store, orderId);
   if (!row) return { ok: false, motivo: 'pedido_fora_do_fluxo' };
   if (row.etapa === 'pago') return { ok: false, motivo: 'ja_pago' };
+  // Pedido que nunca entrou no funil não pode ser reaberto/cobrado pelo agente
+  if (row.etapa === 'fora_do_fluxo') return { ok: false, motivo: 'pedido_fora_do_fluxo' };
   const cfgd = await getDisparosConfig(ctx);
   // PIX ainda vivo: reenvia o MESMO código (idempotente — nunca cobrar 2×)
   if (row.etapa === 'pix_enviado' && row.pix_codigo && row.pix_expira_em && new Date(row.pix_expira_em) > new Date()) {
@@ -484,7 +509,8 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
     // GOTCHA 11: charge pending responde 412 (esperado); o QR morre sozinho.
     const venc = await ctx.db.query(
       `SELECT store, order_id, pix_charge_id FROM wa_upsell
-       WHERE status='open' AND etapa='pix_enviado' AND pix_enviado_em < now() - ($1 || ' minutes')::interval`,
+       WHERE status='open' AND etapa='pix_enviado' AND store <> 'sandbox'
+         AND pix_enviado_em < now() - ($1 || ' minutes')::interval`,
       [ctx.cfg.WA_UPSELL_CLOSE_MIN],
     );
     for (const r of venc.rows) {
@@ -498,12 +524,20 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
           });
         });
       }
-      await waupSet(ctx, r.store, r.order_id, { status: 'closed', etapa: 'expirado' });
+      // UPDATE condicionado: se o webhook de pagamento chegou DURANTE esta volta
+      // (entre o SELECT e aqui), o 'pago' vence — nunca sobrescrever com 'expirado'
+      await ctx.db.query(
+        `UPDATE wa_upsell SET status='closed', etapa='expirado', atualizado_em=now()
+         WHERE store=$1 AND order_id=$2 AND status='open' AND etapa='pix_enviado'`,
+        [r.store, r.order_id],
+      );
     }
-    // 4h sem resposta: fecha (auto-close usa criado_em — re-aberturas resetam)
+    // 4h sem resposta: fecha (auto-close usa criado_em — re-aberturas resetam).
+    // sandbox fica de fora: os casos do contrato do faturamento são permanentes.
     await ctx.db.query(
       `UPDATE wa_upsell SET status='closed', etapa='sem_resposta', atualizado_em=now()
-       WHERE status='open' AND etapa IN ('aguardando_confirmacao','confirmado','erro_disparo')
+       WHERE status='open' AND store <> 'sandbox'
+         AND etapa IN ('aguardando_confirmacao','confirmado','erro_disparo')
          AND criado_em < now() - ($1 || ' hours')::interval`,
       [ctx.cfg.WA_UPSELL_AUTO_CLOSE_HORAS],
     );
@@ -549,7 +583,8 @@ export async function dispararManual(ctx: FunilCtx, store: string, orderId: numb
        status='open', etapa='aguardando_confirmacao', disparo_status='fila',
        template_msg_id=NULL, oferta_id=EXCLUDED.oferta_id,
        customer_cpf=EXCLUDED.customer_cpf, customer_email=EXCLUDED.customer_email,
-       criado_em=now(), atualizado_em=now()`, // GOTCHA 20: reset de criado_em na reabertura
+       criado_em=now(), atualizado_em=now()
+     WHERE wa_upsell.etapa <> 'pago'`, // GOTCHA 20: reset de criado_em; 'pago' é estado final
     [store, p.orderId, p.numero, p.fone, p.nome, p.cpf || null, p.email, oferta.id],
   );
   await ctx.db.query(

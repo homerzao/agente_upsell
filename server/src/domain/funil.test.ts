@@ -3,6 +3,7 @@ import { COPIES_DEFAULT } from './copies.js';
 import {
   FILA_DISPARO, aceitarOferta, chaveRateHora, confirmarPagamento, iniciarFunil,
   normalizarPedidoYampi, processarFilaDisparo, processarPedidoYampi, registrarResposta,
+  reenviarPix, sweep,
 } from './funil.js';
 import {
   FakeDb, FakeRedis, configDisparoRow, ctxTeste, fakePagarme, fakeYampi, ofertaBase, rowBase,
@@ -159,12 +160,13 @@ describe('processarFilaDisparo', () => {
 });
 
 describe('registrarResposta', () => {
-  it('corrigir: etapa corrigir_sac (segue open) + pré-resposta', async () => {
+  it('corrigir: reabre com status open explícito (correção NUNCA fatura) + pré-resposta', async () => {
     const db = dbFunil({ row: {} });
     const ctx = ctxTeste({ db });
     await registrarResposta(ctx, 'hidrabene', 169610420, { decisao: 'corrigir' });
     const upd = db.achou(/UPDATE wa_upsell SET/)[0];
     expect(upd.values).toContain('corrigir_sac');
+    expect(upd.values).toContain('open'); // reabre mesmo se o auto-close de 4h já fechou
     expect(upd.text).not.toContain("status='closed'");
     const msg: any = ctx.metaFake.enviadas[0];
     expect(msg.text.body).toContain('NÃO será faturado');
@@ -232,6 +234,55 @@ describe('aceitarOferta (PIX)', () => {
     await aceitarOferta(ctx, 'hidrabene', 169610420);
     expect((ctx.metaFake.enviadas[1] as any).text.body).toContain('instabilidade');
     expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('pix_sem_qr_code'))).toBe(true);
+  });
+});
+
+describe('guardas de estado final e reabertura', () => {
+  it('resposta tardia do flow NUNCA sobrescreve pago', async () => {
+    const db = dbFunil({ row: { etapa: 'pago', status: 'closed' } });
+    const ctx = ctxTeste({ db });
+    await registrarResposta(ctx, 'hidrabene', 169610420, { oferta: 'recusar' });
+    await registrarResposta(ctx, 'hidrabene', 169610420, { decisao: 'corrigir' });
+    expect(db.achou(/UPDATE wa_upsell SET/).length).toBe(0);
+    expect(ctx.metaFake.enviadas.length).toBe(0);
+  });
+
+  it('reenviar_pix não reabre pedido fora_do_fluxo (sem cobrança indevida)', async () => {
+    const db = dbFunil({ row: { etapa: 'fora_do_fluxo', status: 'closed' } });
+    const ctx = ctxTeste({ db });
+    const r = await reenviarPix(ctx, 'hidrabene', 169610420);
+    expect(r).toEqual({ ok: false, motivo: 'pedido_fora_do_fluxo' });
+    expect(db.achou(/UPDATE wa_upsell SET status='open'/).length).toBe(0);
+    expect(ctx.metaFake.enviadas.length).toBe(0);
+  });
+
+  it('reenviar_pix com PIX vivo reenvia o MESMO código (nunca cobra 2×)', async () => {
+    const db = dbFunil({
+      row: {
+        etapa: 'pix_enviado', pix_codigo: 'PIXVIVO',
+        pix_expira_em: new Date(Date.now() + 60_000).toISOString(),
+      },
+    });
+    const ctx = ctxTeste({ db });
+    const r = await reenviarPix(ctx, 'hidrabene', 169610420);
+    expect(r).toEqual({ ok: true, reaproveitado: true });
+    expect((ctx.metaFake.enviadas[0] as any).text.body).toBe('PIXVIVO');
+  });
+});
+
+describe('sweep', () => {
+  it('fecha expirado com UPDATE condicionado (pago que chegou no meio vence) e exclui sandbox', async () => {
+    const db = dbFunil();
+    db.on(/SELECT store, order_id, pix_charge_id FROM wa_upsell/, (_v, text) => {
+      expect(text).toContain("store <> 'sandbox'");
+      return [{ store: 'hidrabene', order_id: 169610420, pix_charge_id: 'ch_1' }];
+    });
+    const ctx = ctxTeste({ db });
+    await sweep(ctx);
+    const upd = db.achou(/etapa='expirado'/)[0];
+    expect(upd.text).toContain("status='open' AND etapa='pix_enviado'"); // condicionado
+    const autoClose = db.achou(/sem_resposta/)[0];
+    expect(autoClose.text).toContain("store <> 'sandbox'"); // sandbox é fixture permanente
   });
 });
 

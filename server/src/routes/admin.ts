@@ -71,8 +71,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
     /* ----- dashboard / funil ----- */
     adm.get('/api/dashboard', async (req) => {
       const q = req.query as any;
-      const de = q.de ?? null; // YYYY-MM-DD (America/Sao_Paulo)
-      const ate = q.ate ?? null;
+      const de = q.de || null; // YYYY-MM-DD (America/Sao_Paulo); '' vira null
+      const ate = q.ate || null;
       const filtro = `store='hidrabene'
         AND ($1::date IS NULL OR (criado_em AT TIME ZONE 'America/Sao_Paulo')::date >= $1::date)
         AND ($2::date IS NULL OR (criado_em AT TIME ZONE 'America/Sao_Paulo')::date <= $2::date)`;
@@ -102,7 +102,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       ).rows[0];
       const diario = (
         await db.query(
-          `SELECT (criado_em AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
+          `SELECT to_char((criado_em AT TIME ZONE 'America/Sao_Paulo')::date, 'YYYY-MM-DD') AS dia,
              COUNT(*) FILTER (WHERE disparo_status IN ('enviado','entregue'))::int AS disparos,
              COUNT(*) FILTER (WHERE pix_charge_id IS NOT NULL OR etapa IN ('pago','expirado'))::int AS aceites,
              COUNT(*) FILTER (WHERE etapa='pago')::int AS pagos
@@ -136,11 +136,16 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       if (q.de) conds.push(`(criado_em AT TIME ZONE 'America/Sao_Paulo')::date >= $${vals.push(q.de)}::date`);
       if (q.ate) conds.push(`(criado_em AT TIME ZONE 'America/Sao_Paulo')::date <= $${vals.push(q.ate)}::date`);
       if (q.q) {
+        // fone/CPF só entram na busca quando o termo tem dígitos —
+        // senão LIKE '%%' casa com tudo e anula o filtro
         const buscaDig = soDigitos(q.q);
         const i = vals.push(`%${String(q.q)}%`);
-        const j = vals.push(buscaDig ? `%${buscaDig}%` : '%%');
-        conds.push(`(order_id::text LIKE $${i} OR order_number LIKE $${i} OR customer_name ILIKE $${i}
-                     OR customer_phone LIKE $${j} OR customer_cpf LIKE $${j})`);
+        const partes = [`order_id::text LIKE $${i}`, `order_number LIKE $${i}`, `customer_name ILIKE $${i}`];
+        if (buscaDig) {
+          const j = vals.push(`%${buscaDig}%`);
+          partes.push(`customer_phone LIKE $${j}`, `customer_cpf LIKE $${j}`);
+        }
+        conds.push(`(${partes.join(' OR ')})`);
       }
       const where = conds.join(' AND ');
       const total = (await db.query(`SELECT COUNT(*)::int AS n FROM wa_upsell WHERE ${where}`, vals)).rows[0].n;
@@ -173,7 +178,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       await db.query(
         `UPDATE wa_upsell SET status='open', etapa='aguardando_confirmacao', disparo_status='fila',
            template_msg_id=NULL, criado_em=now(), atualizado_em=now()
-         WHERE store=$1 AND order_id=$2`,
+         WHERE store=$1 AND order_id=$2 AND etapa <> 'pago'`, // 'pago' é estado final
         [store, Number(orderId)],
       );
       await redis.rpush(FILA_DISPARO, JSON.stringify({ store, order_id: Number(orderId) }));
@@ -339,8 +344,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
     /* ----- relatórios ----- */
     adm.get('/api/relatorios', async (req) => {
       const q = req.query as any;
-      const de = q.de ?? null;
-      const ate = q.ate ?? null;
+      const de = q.de || null; // '' vira null (senão $1::date quebra com 500)
+      const ate = q.ate || null;
       const porEtapa = (
         await db.query(
           `SELECT etapa, status, COUNT(*)::int AS n FROM wa_upsell
@@ -392,6 +397,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           meta: Boolean(cfg.METAWA_TOKEN && cfg.METAWA_PHONE_ID),
           chatwoot: Boolean(cfg.CHATWOOT_URL && cfg.CHATWOOT_API_TOKEN),
           openai: Boolean(cfg.OPENAI_API_KEY),
+          status_api: Boolean(cfg.STATUS_TOKEN),
         },
         credenciais_mascaradas: {
           YAMPI_TOKEN: mascarar(cfg.YAMPI_TOKEN),

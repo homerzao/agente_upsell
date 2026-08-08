@@ -40,19 +40,32 @@ export default function Disparo() {
     }
   };
 
+  // Ações pontuais mandam PUT PARCIAL (só o campo alterado): mandar a config
+  // inteira arrastaria valores stale (ex.: re-armar amostra_restante já consumida)
   const togglePausa = async () => {
     const pausar = !dados.config.pausado;
     if (pausar && !window.confirm('PAUSAR todos os disparos (kill switch global)?')) return;
     if (!pausar && !window.confirm('RETOMAR os disparos? A fila represada será enviada respeitando o rate.')) return;
-    await salvar({ pausado: pausar });
+    setMsg('');
+    try {
+      await put('/api/disparo', { pausado: pausar });
+      await carregar();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message}`);
+    }
   };
 
   const mudarModo = async (novo: 'test' | 'live') => {
     if (novo === 'live' && !window.confirm(
       'Ir pra LIVE?\n\nAs mensagens passam a ir pro CLIENTE REAL de cada pedido.\nEm test, tudo vai pro número de teste do Jorge.',
     )) return;
-    setModo(novo);
-    await salvar({ modo: novo });
+    setMsg('');
+    try {
+      await put('/api/disparo', { modo: novo });
+      await carregar();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message}`);
+    }
   };
 
   const dispararManual = async () => {

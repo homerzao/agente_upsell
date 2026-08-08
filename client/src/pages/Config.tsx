@@ -61,7 +61,7 @@ export default function Config() {
             <tr><td>Meta WhatsApp</td><td>{chip(cfg.integracoes.meta)}</td><td className="mono">{cfg.credenciais_mascaradas.METAWA_TOKEN}</td></tr>
             <tr><td>Chatwoot</td><td>{chip(cfg.integracoes.chatwoot)}</td><td className="mono">{cfg.credenciais_mascaradas.CHATWOOT_API_TOKEN}</td></tr>
             <tr><td>OpenAI</td><td>{chip(cfg.integracoes.openai)}</td><td className="mono">{cfg.credenciais_mascaradas.OPENAI_API_KEY}</td></tr>
-            <tr><td>Status API (faturamento)</td><td>{chip(Boolean(cfg.credenciais_mascaradas.STATUS_TOKEN))}</td><td className="mono">{cfg.credenciais_mascaradas.STATUS_TOKEN}</td></tr>
+            <tr><td>Status API (faturamento)</td><td>{chip(cfg.integracoes.status_api)}</td><td className="mono">{cfg.credenciais_mascaradas.STATUS_TOKEN}</td></tr>
           </tbody>
         </table>
       </div>

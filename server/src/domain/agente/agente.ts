@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import type { OpenAIService, ChatMessage } from '../../services/openai.js';
 import { soDigitos, valorBr } from '../../lib/util.js';
-import { getOferta, getRow, logEvento, normalizarPedidoYampi, type FunilCtx } from '../funil.js';
+import { getDisparosConfig, getOferta, getRow, logEvento, normalizarPedidoYampi, type FunilCtx } from '../funil.js';
 import { encaminharHumano } from '../handoff.js';
 import { montarSystemPrompt, type ContextoAgente } from './contexto.js';
 import { TOOL_DEFS, executarTool } from './tools.js';
@@ -31,11 +31,16 @@ export async function resolverConversa(
     if (w.rows.length) return { conversa: c.rows[0], row: w.rows[0] as WaUpsellRow };
   }
   // Fallback: liga a conversa à row mais recente do fone (ex.: conversa criada
-  // pelo próprio Chatwoot antes do nosso registro)
+  // pelo próprio Chatwoot antes do nosso registro). SÓ rows que realmente
+  // entraram no funil — fora_do_fluxo é SAC comum, não é conversa do bot
+  // (gotcha 23 registra TODO pedido pago; sem este filtro o bot sequestraria
+  // qualquer cliente recente que mandasse mensagem na inbox).
   const dig = soDigitos(fone);
   if (!dig) return null;
   const w = await ctx.db.query(
-    `SELECT * FROM wa_upsell WHERE customer_phone=$1 AND store='hidrabene' ORDER BY criado_em DESC LIMIT 1`,
+    `SELECT * FROM wa_upsell WHERE customer_phone=$1 AND store='hidrabene'
+       AND etapa <> 'fora_do_fluxo' AND disparo_status IS NOT NULL
+     ORDER BY criado_em DESC LIMIT 1`,
     [dig],
   );
   if (!w.rows.length) return null;
@@ -115,6 +120,11 @@ export async function processarMensagemCliente(
     conversa.id, 'in', texto,
   ]);
   if (conversa.status === 'humano') return; // humano assumiu: bot fica quieto
+
+  // Gotcha 24: em modo test o agente só conversa com o fone de teste —
+  // NUNCA responde cliente real antes da decisão explícita de ir pra live.
+  const cfgd = await getDisparosConfig(ctx);
+  if (cfgd.modo === 'test' && soDigitos(fone) !== soDigitos(ctx.cfg.WA_FONE_TESTE)) return;
 
   const responder = async (msg: string) => {
     if (!ctx.chatwoot) return;

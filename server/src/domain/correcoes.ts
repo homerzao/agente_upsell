@@ -128,7 +128,8 @@ export async function registrarCorrecao(
      VALUES ($1,$2,$3,$4,'aguardando_aprovacao') RETURNING id`,
     [row.id, antes, depois, { puts }],
   );
-  await waupSet(ctx, store, orderId, { etapa: 'corrigir_sac' });
+  // open explícito: correção registrada segura o faturamento até a decisão
+  await waupSet(ctx, store, orderId, { status: 'open', etapa: 'corrigir_sac' });
   return { ok: true, correcaoId: ins.rows[0].id };
 }
 
@@ -241,9 +242,12 @@ export async function rejeitarCorrecao(
   const oferta = await getOferta(ctx, row.oferta_id);
   const msg = renderCopy(oferta?.copies?.msg_correcao_rejeitada ?? '', { nome: primeiroNome(row.customer_name) });
   if (msg) {
+    // gotcha 7: falha de envio NUNCA é silenciosa
     await ctx.meta
       .enviarTexto(destinoMensagem(cfgd.modo, soDigitos(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
-      .catch(() => {});
+      .catch(async (e) => {
+        await logEvento(ctx, row.store, { erro: 'msg_correcao_rejeitada_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
+      });
   }
   await ctx.db.query('INSERT INTO auditoria (usuario, acao, alvo, payload) VALUES ($1,$2,$3,$4)', [
     usuario, 'correcao_rejeitada', `correcao:${correcaoId}`, { order_id: row.order_id, motivo },

@@ -61,6 +61,16 @@ async function main() {
     logger: {
       level: cfg.LOG_LEVEL,
       transport: cfg.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
+      serializers: {
+        // token de webhook (?t=) nunca vai pro log
+        req(req: any) {
+          return {
+            method: req.method,
+            url: String(req.url).replace(/([?&]t=)[^&]*/g, '$1[redacted]'),
+            remoteAddress: req.ip,
+          };
+        },
+      },
     },
     trustProxy: true, // atrás do Traefik
   });

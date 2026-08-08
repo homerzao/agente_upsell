@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { montarSystemPrompt } from './contexto.js';
 import { TOOL_DEFS } from './tools.js';
 import { pedeHumano, processarMensagemCliente, resolverConversa } from './agente.js';
-import { FakeDb, ctxTeste, rowBase, ofertaBase } from '../../test/fakes.js';
+import { FakeDb, configDisparoRow, ctxTeste, rowBase, ofertaBase } from '../../test/fakes.js';
 import { COPIES_DEFAULT } from '../copies.js';
 import type { WaUpsellRow } from '../tipos.js';
 
@@ -68,9 +68,10 @@ describe('tools do agente', () => {
   });
 });
 
-function dbAgente(over: { conversaStatus?: string } = {}) {
+function dbAgente(over: { conversaStatus?: string; modo?: string } = {}) {
   const db = new FakeDb();
   const mensagens: any[] = [];
+  db.on(/SELECT \* FROM disparos_config/, () => [configDisparoRow({ modo: over.modo ?? 'live' })]);
   db.on(/SELECT \* FROM conversas WHERE chatwoot_conversation_id/, () => [
     { id: 9, wa_upsell_id: 1, chatwoot_conversation_id: 555, status: over.conversaStatus ?? 'bot' },
   ]);
@@ -177,6 +178,42 @@ describe('processarMensagemCliente', () => {
   });
 });
 
+describe('modo test (gotcha 24)', () => {
+  it('bot fica MUDO com cliente real em modo test (só o fone de teste conversa)', async () => {
+    const { db, mensagens } = dbAgente({ modo: 'test' });
+    const cw = chatwootFake();
+    const openai = {
+      async chat() {
+        throw new Error('não deveria chamar o modelo');
+      },
+      custo: () => 0,
+    };
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'oi, quero a oferta');
+    expect(mensagens.length).toBe(1); // loga o incoming
+    expect(cw.enviadas.length).toBe(0); // mas NÃO responde cliente real
+  });
+
+  it('fone de teste conversa normalmente em modo test', async () => {
+    const { db } = dbAgente({ modo: 'test' });
+    const cw = chatwootFake();
+    const openai = {
+      async chat() {
+        return {
+          message: { role: 'assistant', content: 'Oi, Jorge! ✅' },
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        };
+      },
+      custo: () => 0,
+    };
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5591992148793', 'teste');
+    expect(cw.enviadas.length).toBe(1);
+  });
+});
+
 describe('resolverConversa', () => {
   it('sem conversa e sem row pelo fone: não é nossa (null)', async () => {
     const db = new FakeDb();
@@ -186,10 +223,15 @@ describe('resolverConversa', () => {
     expect(await resolverConversa(ctx, 1, '5511900000000')).toBeNull();
   });
 
-  it('fallback: liga a conversa à row mais recente do fone', async () => {
+  it('fallback: liga a conversa à row mais recente do fone SÓ se entrou no funil', async () => {
     const db = new FakeDb();
     db.on(/SELECT \* FROM conversas WHERE chatwoot_conversation_id/, () => []);
-    db.on(/SELECT \* FROM wa_upsell WHERE customer_phone/, () => [rowBase()]);
+    db.on(/SELECT \* FROM wa_upsell WHERE customer_phone/, (_v, text) => {
+      // fora_do_fluxo é SAC comum — o bot não sequestra a conversa
+      expect(text).toContain("etapa <> 'fora_do_fluxo'");
+      expect(text).toContain('disparo_status IS NOT NULL');
+      return [rowBase()];
+    });
     db.on(/INSERT INTO conversas/, () => [{ id: 42, wa_upsell_id: 1, chatwoot_conversation_id: 1, status: 'bot' }]);
     const ctx: any = { ...ctxTeste({ db }), openai: null };
     const r = await resolverConversa(ctx, 1, '5511987654321');

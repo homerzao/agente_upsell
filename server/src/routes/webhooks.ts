@@ -34,7 +34,8 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
     const body = (req.body ?? {}) as any;
     await logEvento(ctx, 'pagarme', body);
     const tipo = String(body.type ?? body.event ?? '');
-    if (/paid|payment/.test(tipo)) {
+    // charge.paid / order.paid confirmam; eventos de falha/estorno NÃO
+    if (/paid|payment/.test(tipo) && !/fail|refus|refund|cancel|chargeback/.test(tipo)) {
       await confirmarPagamento(ctx, body).catch(async (e) => {
         await logEvento(ctx, 'pagarme', { erro: 'confirmar_pagamento_falhou', detalhe: String((e as Error).message).slice(0, 300) });
       });

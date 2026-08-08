@@ -35,7 +35,8 @@ export async function seedSandbox(db: Db): Promise<void> {
     await db.query(
       `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, status, etapa)
        VALUES ('sandbox', $1, $2, '5591999999999', 'Cliente Sandbox', $3, $4)
-       ON CONFLICT (store, order_id) DO UPDATE SET status=$3, etapa=$4, atualizado_em=now()`,
+       ON CONFLICT (store, order_id) DO UPDATE SET status=$3, etapa=$4,
+         criado_em=now(), atualizado_em=now()`, // gotcha 20: reabertura reseta criado_em
       [id, numero, st, et],
     );
   }
