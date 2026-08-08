@@ -70,13 +70,14 @@ export function criarChatwoot(
       private: privada,
     });
 
-  // Mensagem do CLIENTE injetada na conversa (webhook da Meta chega direto aqui;
-  // o Chatwoot não recebe mais sozinho). source_id marca a origem pra dedup.
+  // Espelho da mensagem do CLIENTE como NOTA INTERNA (padrão do dev do TechSAC).
+  // Inbox de WhatsApp NÃO aceita message_type incoming via API (422 "Api inboxes
+  // only") — e o TechSAC recebe a mensagem real pelo canal nativo dele; a nota é
+  // só contexto pro SAC. source_id marca a origem pra dedup.
   const injetarMensagemCliente = (conversationId: number, content: string, sourceId: string) =>
     req('POST', `/conversations/${conversationId}/messages`, {
-      content,
-      message_type: 'incoming',
-      private: false,
+      content: `💬 Cliente: ${content}`,
+      private: true,
       source_id: sourceId,
     });
 

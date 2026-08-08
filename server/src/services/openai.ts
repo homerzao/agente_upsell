@@ -34,7 +34,9 @@ export function criarOpenAI(
       body: JSON.stringify({
         model: cfg.OPENAI_MODEL,
         messages,
-        ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
+        // gpt-5.6-luna: tools + reasoning no chat/completions exigem effort 'none'
+        // (400 sem isso). Conversa de atendimento não precisa de reasoning pesado.
+        ...(tools?.length ? { tools, tool_choice: 'auto', reasoning_effort: 'none' } : {}),
       }),
     });
     const j: any = await r.json().catch(() => ({}));
