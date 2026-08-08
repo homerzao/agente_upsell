@@ -19,6 +19,10 @@ export async function seed(db: Db): Promise<void> {
        VALUES ($1, $2, $3, $4, true, $5)`,
       [OFERTA_DEFAULT.nome, OFERTA_DEFAULT.sku_yampi, OFERTA_DEFAULT.preco, OFERTA_DEFAULT.preco_de, COPIES_DEFAULT],
     );
+  } else {
+    // Backfill de copies NOVAS (ex.: msg_despedida) em ofertas existentes:
+    // default primeiro, existente vence — texto editado no painel não é tocado.
+    await db.query(`UPDATE ofertas SET copies = $1::jsonb || copies`, [COPIES_DEFAULT]);
   }
   // Sandbox da API de status (casos 900000001..4 do doc do faturamento)
   await seedSandbox(db);
