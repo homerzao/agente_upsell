@@ -26,6 +26,7 @@ export type RedisLike = {
   // set com 'EX', ttl, 'NX' (dedup de wamid): retorna 'OK' ou null.
   // Assinatura frouxa de propósito — os overloads do ioredis não unificam.
   set(...args: any[]): Promise<unknown>;
+  del(key: string): Promise<unknown>;
 };
 
 export type FunilCtx = {

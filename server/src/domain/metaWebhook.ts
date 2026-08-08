@@ -14,12 +14,27 @@ import {
 } from './funil.js';
 
 const TTL_WAMID_SEG = 7 * 24 * 3600;
+// Claim inicial CURTO: se o processo morrer no meio (deploy!), o claim expira e
+// a reentrega da Meta reprocessa. Só vira 7 dias DEPOIS do processamento ok.
+// (Bug real de 08/08: mensagem do Jorge caiu na janela do deploy, o container
+// velho reivindicou o wamid e morreu — a reentrega foi descartada pra sempre.)
+const TTL_CLAIM_SEG = 60;
 
 // Dedup por wamid: a Meta reentrega webhooks — repetido não processa de novo.
 export async function reivindicarWamid(ctx: FunilCtx, wamid: string): Promise<boolean> {
   if (!wamid) return true; // sem id: processa (não dá pra dedupar)
-  const r = await ctx.redis.set(`waup:wamid:${wamid}`, '1', 'EX', TTL_WAMID_SEG, 'NX');
+  const r = await ctx.redis.set(`waup:wamid:${wamid}`, '1', 'EX', TTL_CLAIM_SEG, 'NX');
   return r !== null && r !== undefined && r !== 0; // 'OK' = somos os primeiros
+}
+
+// Processou com sucesso: estende o claim pro TTL cheio (dedup de reentrega tardia)
+export async function confirmarWamid(ctx: FunilCtx, wamid: string): Promise<void> {
+  if (wamid) await ctx.redis.expire(`waup:wamid:${wamid}`, TTL_WAMID_SEG);
+}
+
+// Processamento FALHOU: libera o claim pra reentrega da Meta tentar de novo
+export async function liberarWamid(ctx: FunilCtx, wamid: string): Promise<void> {
+  if (wamid) await ctx.redis.del(`waup:wamid:${wamid}`);
 }
 
 async function processarNfmReply(ctx: FunilCtx, msg: any): Promise<void> {
@@ -89,13 +104,25 @@ export async function processarWebhookMeta(ctx: AgenteCtx, body: any): Promise<v
   for (const entry of body?.entry ?? []) {
     for (const ch of entry.changes ?? []) {
       for (const msg of ch.value?.messages ?? []) {
-        if (!(await reivindicarWamid(ctx, String(msg.id ?? '')))) continue; // reentrega
-        if (msg.interactive?.nfm_reply) {
-          await processarNfmReply(ctx, msg);
-        } else if (msg.type === 'text' || msg.text?.body) {
-          await processarTextoInbound(ctx, msg);
+        const wamid = String(msg.id ?? '');
+        if (!(await reivindicarWamid(ctx, wamid))) continue; // reentrega
+        try {
+          if (msg.interactive?.nfm_reply) {
+            await processarNfmReply(ctx, msg);
+          } else if (msg.type === 'text' || msg.text?.body) {
+            await processarTextoInbound(ctx, msg);
+          }
+          // demais tipos (mídia, reação, etc.): descarte silencioso
+          await confirmarWamid(ctx, wamid);
+        } catch (e) {
+          // devolve o claim: a reentrega da Meta reprocessa em vez de perder a msg
+          await liberarWamid(ctx, wamid);
+          await logEvento(ctx, 'hidrabene', {
+            erro: 'processar_msg_meta_falhou',
+            wamid,
+            detalhe: String((e as Error).message).slice(0, 300),
+          });
         }
-        // demais tipos (mídia, reação, etc.): descarte silencioso
       }
       // Status de entrega: SÓ os que batem com um template nosso (o UPDATE é o
       // filtro); os demais são descartados sem log.
