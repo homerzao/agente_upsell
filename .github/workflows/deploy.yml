@@ -45,6 +45,10 @@ jobs:
           SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
+          if [ -z "$SSH_KEY_B64" ] || [ -z "$HOST" ]; then
+            echo "Secrets DEPLOY_SSH_KEY_B64/DEPLOY_HOST ausentes — pulando deploy (ver docs/SETUP.md)"
+            exit 0
+          fi
           mkdir -p ~/.ssh
           printf '%s' "$SSH_KEY_B64" | base64 -d > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
