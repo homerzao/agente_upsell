@@ -1,12 +1,10 @@
 // Webhooks de entrada. Token fraco na URL (?t=, sha256 derivado do BACKEND_TOKEN)
-// para Yampi/Pagar.me/Chatwoot; Meta usa hub.challenge + X-Hub-Signature-256.
+// para Yampi/Pagar.me; Meta usa hub.challenge + X-Hub-Signature-256.
 // SEMPRE responder 200 rápido: processamento pesado não pode derrubar o webhook.
 import type { FastifyInstance } from 'fastify';
 import type { AgenteCtx } from '../domain/agente/agente.js';
-import { processarMensagemCliente } from '../domain/agente/agente.js';
 import { confirmarPagamento, logEvento, processarPedidoYampi } from '../domain/funil.js';
 import { processarWebhookMeta } from '../domain/metaWebhook.js';
-import { soDigitos } from '../lib/util.js';
 
 export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
   const cfg = ctx.cfg;
@@ -43,35 +41,8 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
     return { received: true };
   });
 
-  // ===== Chatwoot: message_created (conversa do agente IA) =====
-  app.post('/webhook/chatwoot', async (req, reply) => {
-    if ((req.query as any).t !== cfg.webhookTokenChatwoot) return reply.code(403).send({ error: 'forbidden' });
-    const body = (req.body ?? {}) as any;
-    const evento = String(body.event ?? '');
-    // Filtra: só mensagem de cliente (incoming), da inbox certa, não-privada.
-    // Mensagens do próprio bot voltam como outgoing — ignoradas aqui.
-    if (evento !== 'message_created') return { received: true };
-    if (body.message_type !== 'incoming' && body.message_type !== 0) return { received: true };
-    if (body.private) return { received: true };
-    const inboxId = body.inbox?.id ?? body.conversation?.inbox_id;
-    if (cfg.CHATWOOT_INBOX_ID && String(inboxId) !== String(cfg.CHATWOOT_INBOX_ID)) return { received: true };
-    const conversationId = body.conversation?.id;
-    const texto = String(body.content ?? '').trim();
-    const fone = soDigitos(body.sender?.phone_number ?? body.conversation?.meta?.sender?.phone_number ?? '');
-    if (!conversationId || !texto) return { received: true };
-    // Dedup na transição Meta-direto: a mesma mensagem pode chegar pela nossa
-    // injeção (source_id waup-wa:<wamid>) E pelo canal nativo (source_id <wamid>)
-    const srcId = String(body.source_id ?? '').replace(/^waup-wa:/, '');
-    if (srcId) {
-      const primeiro = await ctx.redis.set(`waup:cwdedup:${srcId}`, '1', 'EX', 24 * 3600, 'NX');
-      if (primeiro === null || primeiro === undefined) return { received: true };
-    }
-    // Processa async: webhook responde já (Chatwoot não espera o modelo)
-    processarMensagemCliente(ctx, Number(conversationId), fone, texto).catch(async (e) => {
-      await logEvento(ctx, 'hidrabene', { erro: 'webhook_chatwoot_falhou', detalhe: String((e as Error).message).slice(0, 300) });
-    });
-    return { received: true };
-  });
+  // (Sem webhook do Chatwoot: a Meta chama direto e o agente IA é acionado
+  //  dentro do processarWebhookMeta — decisão do Jorge, 08/08/2026.)
 
   // ===== Meta: verificação + nfm_reply dos flows (+ status de entrega) =====
   app.get('/webhook/meta', async (req, reply) => {

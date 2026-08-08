@@ -59,8 +59,9 @@ Abrir o painel → **Config**: as URLs prontas (com token) estão lá pra copiar
    webhook criado por API nasce `active:false`, o sistema faz o PUT de ativação).
 2. **Pagar.me**: cadastrar a URL `…/webhook/pagarme?t=…` no painel da Pagar.me
    (eventos de pedido/cobrança paga).
-3. **Chatwoot**: Settings → Integrations → Webhooks → URL `…/webhook/chatwoot?t=…`,
-   evento `message_created`.
+3. **Chatwoot**: NÃO precisa de webhook (decisão do Jorge, 08/08/2026). O agente IA
+   é acionado direto pelo webhook da Meta; o Chatwoot vira espelho (injeção via API)
+   e canal de resposta do agente.
 4. **Meta — DIRETO (sem n8n, decisão tomada)**: apontar o callback do app Meta pra
    `…/webhook/meta`, verificar com o `METAWA_VERIFY_TOKEN` e configurar
    `META_APP_SECRET`. O sistema filtra o firehose sozinho: só processa/persiste

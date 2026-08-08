@@ -144,7 +144,7 @@ export async function processarMensagemCliente(
 
   try {
     const contexto = await montarContexto(ctx, row);
-    const system = montarSystemPrompt(contexto);
+    const system = montarSystemPrompt(contexto, cfgd.treinamento);
     const historico = await historicoMensagens(ctx, conversa.id);
     const messages: ChatMessage[] = [{ role: 'system', content: system }, ...historico];
     // (a mensagem atual já entrou no histórico via INSERT acima)

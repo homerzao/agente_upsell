@@ -7,6 +7,7 @@
 //   3. texto inbound de fone com row em contexto ativo -> injeta no Chatwoot
 // Todo o resto: 200 e descarte, sem gravar.
 import { parseFlowToken } from './estados.js';
+import { processarMensagemCliente, type AgenteCtx } from './agente/agente.js';
 import {
   buscarRowContextoAtivo, criarConversaChatwoot, getDisparosConfig, logEvento,
   registrarResposta, type FunilCtx,
@@ -35,22 +36,25 @@ async function processarNfmReply(ctx: FunilCtx, msg: any): Promise<void> {
 }
 
 // Texto inbound de lead em contexto ativo -> injeta na conversa do Chatwoot
-// (a Meta não entrega mais pro Chatwoot sozinha). O agente IA responde a partir
-// do webhook message_created do Chatwoot — caminho único, sem eco.
-async function processarTextoInbound(ctx: FunilCtx, msg: any): Promise<void> {
+// (a Meta não entrega mais pro Chatwoot sozinha) e chama o agente IA DIRETO
+// daqui — caminho único, sem webhook do Chatwoot (decisão do Jorge 08/08:
+// "chatwoot não precisa de webhook, já que vamos captar da meta direto").
+// A injeção é só espelho pro SAC ver a thread; falha nela não cala o agente.
+async function processarTextoInbound(ctx: AgenteCtx, msg: any): Promise<void> {
   const fone = String(msg.from ?? '');
   const texto = String(msg.text?.body ?? '').trim();
   if (!fone || !texto) return;
   const row = await buscarRowContextoAtivo(ctx, fone);
   if (!row) return; // fora de contexto: SAC comum, descarta sem gravar
   await logEvento(ctx, row.store, { origem: 'meta', tipo: 'msg_cliente', order_id: row.order_id, wamid: msg.id ?? null });
-  if (!ctx.chatwoot) return;
+  if (!ctx.chatwoot) return; // sem Chatwoot o agente não tem por onde responder
+  const cfgd = await getDisparosConfig(ctx);
+  let convId: number | null = null;
   try {
-    const cfgd = await getDisparosConfig(ctx);
-    const convId = await criarConversaChatwoot(ctx, row, cfgd.modo);
+    convId = await criarConversaChatwoot(ctx, row, cfgd.modo);
     if (convId) {
-      // source_id marca a injeção: se o canal nativo do Chatwoot também entregar
-      // (transição), o dedup do webhook segura o segundo processamento
+      // source_id marca a injeção: se algum canal nativo do Chatwoot também
+      // entregar, dá pra identificar a duplicata pelo prefixo waup-wa:
       await ctx.chatwoot.injetarMensagemCliente(convId, texto, `waup-wa:${msg.id ?? ''}`);
     }
   } catch (e) {
@@ -60,9 +64,21 @@ async function processarTextoInbound(ctx: FunilCtx, msg: any): Promise<void> {
       detalhe: String((e as Error).message).slice(0, 300),
     });
   }
+  if (!convId) return;
+  // Agente IA processa a mensagem AQUI (gatilho = webhook da Meta, não o do
+  // Chatwoot). Guardas do agente valem iguais: modo test, humano assumiu, etc.
+  try {
+    await processarMensagemCliente(ctx, convId, fone, texto);
+  } catch (e) {
+    await logEvento(ctx, row.store, {
+      erro: 'agente_processamento_falhou',
+      order_id: row.order_id,
+      detalhe: String((e as Error).message).slice(0, 300),
+    });
+  }
 }
 
-export async function processarWebhookMeta(ctx: FunilCtx, body: any): Promise<void> {
+export async function processarWebhookMeta(ctx: AgenteCtx, body: any): Promise<void> {
   // Formato direto (compat n8n): {flow_token, ...respostas}
   if (body?.flow_token && !body?.entry) {
     const ref = parseFlowToken(body.flow_token);

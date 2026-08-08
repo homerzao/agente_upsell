@@ -1,14 +1,31 @@
 import { useEffect, useState } from 'react';
-import { get, post } from '../api';
+import { get, post, put } from '../api';
 
 export default function Config() {
   const [cfg, setCfg] = useState<any>(null);
   const [msg, setMsg] = useState('');
   const [testando, setTestando] = useState(false);
+  const [treinamento, setTreinamento] = useState('');
+  const [salvandoTreino, setSalvandoTreino] = useState(false);
 
   useEffect(() => {
-    get('/api/config').then(setCfg).catch((e) => setMsg(e.message));
+    get('/api/config').then((c) => {
+      setCfg(c);
+      setTreinamento(c.treinamento ?? '');
+    }).catch((e) => setMsg(e.message));
   }, []);
+
+  const salvarTreinamento = async () => {
+    setSalvandoTreino(true);
+    try {
+      await put('/api/treinamento', { treinamento });
+      setMsg('✅ Treinamento salvo — vale a partir da próxima mensagem do agente');
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message}`);
+    } finally {
+      setSalvandoTreino(false);
+    }
+  };
 
   const copiar = (v: string) => {
     navigator.clipboard.writeText(v).then(() => setMsg('✅ Copiado'));
@@ -68,7 +85,7 @@ export default function Config() {
 
       <div className="painel">
         <h2 style={{ marginTop: 0 }}>Webhooks de entrada</h2>
-        <p className="sub">Clique pra copiar. Cadastrar na Yampi (botão abaixo), Pagar.me, Chatwoot e Meta.</p>
+        <p className="sub">Clique pra copiar. Cadastrar na Yampi (botão abaixo), Pagar.me e Meta. (Chatwoot não usa webhook: a Meta chama direto.)</p>
         <table>
           <tbody>
             {Object.entries(cfg.webhooks).map(([nome, url]) => (
@@ -90,9 +107,29 @@ export default function Config() {
       </div>
 
       <div className="painel">
+        <h2 style={{ marginTop: 0 }}>🧠 Treinamento do agente IA</h2>
+        <p className="sub">
+          Estilo de escrita que o agente segue em TODA resposta (entra no prompt junto com as
+          regras fixas de segurança — as regras sempre vencem). Editar aqui vale na hora, sem deploy.
+        </p>
+        <textarea
+          value={treinamento}
+          onChange={(e) => setTreinamento(e.target.value)}
+          rows={18}
+          style={{ width: '100%', fontFamily: 'monospace', fontSize: 13 }}
+        />
+        <div className="linha" style={{ marginTop: 8 }}>
+          <button disabled={salvandoTreino} onClick={salvarTreinamento}>
+            {salvandoTreino ? 'Salvando…' : 'Salvar treinamento'}
+          </button>
+          <span className="sub" style={{ margin: 0 }}>{treinamento.length} caracteres</span>
+        </div>
+      </div>
+
+      <div className="painel">
         <h2 style={{ marginTop: 0 }}>Notas de operação</h2>
         <ul className="sub" style={{ marginBottom: 0 }}>
-          <li>Webhook da Meta: verificar com o METAWA_VERIFY_TOKEN no painel da Meta (ou manter o n8n forwardando nfm_reply — o endpoint aceita os dois formatos).</li>
+          <li>Webhook da Meta: verificar com o METAWA_VERIFY_TOKEN no painel da Meta. A Meta chama direto; o agente IA responde a partir dele (sem webhook do Chatwoot).</li>
           <li>Header do template usa media id que EXPIRA (~30 dias): preferir URL própria na copy header_url da oferta.</li>
           <li>Modo test manda TODA mensagem pro fone de teste; live só com decisão explícita na página Disparo.</li>
         </ul>

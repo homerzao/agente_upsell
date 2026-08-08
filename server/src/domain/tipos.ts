@@ -52,6 +52,7 @@ export type DisparosConfig = {
   rate_por_hora: number;
   pausado: boolean;
   amostra_restante: number | null;
+  treinamento: string; // estilo de escrita do agente IA (editável no painel)
 };
 
 export type RespostaFlow = {

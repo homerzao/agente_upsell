@@ -19,7 +19,7 @@ export type ContextoAgente = {
   correcoesPendentes: number;
 };
 
-export function montarSystemPrompt(c: ContextoAgente): string {
+export function montarSystemPrompt(c: ContextoAgente, treinamento = ''): string {
   const pixVivo =
     c.row.etapa === 'pix_enviado' && c.row.pix_expira_em && new Date(c.row.pix_expira_em) > new Date();
   const oferta = c.oferta
@@ -59,5 +59,8 @@ ESTADO DO FUNIL:
 - Pagamento da oferta: ${c.pagamento ? `CONFIRMADO (R$ ${c.pagamento.valor} em ${c.pagamento.pago_em})` : 'não realizado'}
 - Correções aguardando aprovação: ${c.correcoesPendentes}
 
-OFERTA: ${oferta}`;
+OFERTA: ${oferta}${treinamento.trim() ? `
+
+ESTILO DE ESCRITA (treinamento da casa — siga à risca; em conflito com as REGRAS INVIOLÁVEIS acima, as regras vencem):
+${treinamento.trim()}` : ''}`;
 }

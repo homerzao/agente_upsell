@@ -74,6 +74,7 @@ export async function getDisparosConfig(ctx: FunilCtx): Promise<DisparosConfig> 
     rate_por_hora: row.rate_por_hora ?? 0,
     pausado: row.pausado ?? true,
     amostra_restante: row.amostra_restante ?? null,
+    treinamento: row.treinamento ?? '',
   };
 }
 

@@ -316,21 +316,51 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       return r;
     });
 
-    /* ----- conversas (espelho somente-leitura) ----- */
-    adm.get('/api/conversas', async () => {
+    /* ----- conversas (espelho somente-leitura; filtro/busca/paginação) ----- */
+    adm.get('/api/conversas', async (req) => {
+      const q = req.query as Record<string, string>;
+      const limit = Math.min(Math.max(Number(q.limit ?? 50), 1), 200);
+      const offset = Math.max(Number(q.offset ?? 0), 0);
+      const where: string[] = [];
+      const vals: unknown[] = [];
+      if (q.status === 'bot' || q.status === 'humano') {
+        vals.push(q.status);
+        where.push(`c.status = $${vals.length}`);
+      }
+      const busca = String(q.q ?? '').trim();
+      if (busca) {
+        // nome, fone, order_id ou número do pedido — um campo só de busca no painel
+        vals.push(`%${busca}%`);
+        where.push(
+          `(w.customer_name ILIKE $${vals.length} OR w.customer_phone LIKE $${vals.length}
+            OR w.order_id::text LIKE $${vals.length} OR w.order_number LIKE $${vals.length})`,
+        );
+      }
+      const cond = where.length ? `WHERE ${where.join(' AND ')}` : '';
+      vals.push(limit, offset);
       const rows = (
         await db.query(
           `SELECT c.*, w.order_id, w.order_number, w.customer_name, w.etapa,
              (SELECT COUNT(*)::int FROM mensagens_ia m WHERE m.conversa_id = c.id) AS mensagens,
              (SELECT COALESCE(SUM(m.custo),0)::numeric(12,6) FROM mensagens_ia m WHERE m.conversa_id = c.id) AS custo
            FROM conversas c LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id
-           ORDER BY c.atualizado_em DESC LIMIT 200`,
+           ${cond}
+           ORDER BY c.atualizado_em DESC LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
+          vals,
         )
       ).rows;
+      const total = Number(
+        (
+          await db.query(
+            `SELECT COUNT(*)::int AS n FROM conversas c LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id ${cond}`,
+            vals.slice(0, vals.length - 2),
+          )
+        ).rows[0]?.n ?? 0,
+      );
       const linkBase = cfg.CHATWOOT_URL
         ? `${cfg.CHATWOOT_URL.replace(/\/$/, '')}/app/accounts/${cfg.CHATWOOT_ACCOUNT_ID}/conversations`
         : null;
-      return { conversas: rows, chatwoot_link_base: linkBase };
+      return { conversas: rows, total, limit, offset, chatwoot_link_base: linkBase };
     });
 
     adm.get('/api/conversas/:id/mensagens', async (req) => ({
@@ -410,13 +440,21 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         webhooks: {
           yampi: `${base}/webhook/yampi?t=${cfg.webhookTokenYampi}`,
           pagarme: `${base}/webhook/pagarme?t=${cfg.webhookTokenPagarme}`,
-          chatwoot: `${base}/webhook/chatwoot?t=${cfg.webhookTokenChatwoot}`,
           meta: `${base}/webhook/meta`,
         },
         modelo_ia: cfg.OPENAI_MODEL,
         template: cfg.WA_UPSELL_TEMPLATE_CONFIRMA,
         flow_id: cfg.WA_UPSELL_FLOW_ID,
+        treinamento: config.treinamento,
       };
+    });
+
+    // Treinamento do agente IA (estilo de escrita) — editável, entra no system prompt
+    adm.put('/api/treinamento', async (req) => {
+      const body = z.object({ treinamento: z.string().max(20000) }).parse(req.body ?? {});
+      await db.query('UPDATE disparos_config SET treinamento=$1, atualizado_em=now() WHERE id=1', [body.treinamento]);
+      await auditar(usuario(req), 'treinamento_ia', null, { tamanho: body.treinamento.length });
+      return { ok: true };
     });
 
     // Cria e ATIVA o webhook na Yampi apontando pra cá
