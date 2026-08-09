@@ -407,14 +407,22 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
     });
 
     adm.post('/api/aprovacoes/:id/aprovar', async (req, reply) => {
-      const r = await aprovarCorrecao(ctx, Number((req.params as any).id), usuario(req));
+      // avisar_cliente é OPT-IN: por padrão aprovar não manda mensagem nenhuma
+      const avisar = Boolean((req.body as any)?.avisar_cliente);
+      const r = await aprovarCorrecao(ctx, Number((req.params as any).id), usuario(req), avisar);
       if (!r.ok) return reply.code(400).send(r);
       return r;
     });
 
     adm.post('/api/aprovacoes/:id/rejeitar', async (req, reply) => {
       const body = (req.body ?? {}) as any;
-      const r = await rejeitarCorrecao(ctx, Number((req.params as any).id), usuario(req), String(body.motivo ?? ''));
+      const r = await rejeitarCorrecao(
+        ctx,
+        Number((req.params as any).id),
+        usuario(req),
+        String(body.motivo ?? ''),
+        Boolean(body.avisar_cliente), // idem: silencioso por padrão ("ignorar")
+      );
       if (!r.ok) return reply.code(400).send(r);
       return r;
     });

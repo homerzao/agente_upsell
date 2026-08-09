@@ -38,13 +38,15 @@ export default function Aprovacoes() {
 
   const aprovar = async (c: any) => {
     if (!window.confirm(
-      `APROVAR a correção do pedido ${c.order_id}?\n\nO sistema vai aplicar na Yampi, conferir lendo de volta e avisar o cliente.`,
+      `APROVAR a correção do pedido ${c.order_id}?\n\nO sistema aplica na Yampi e confere lendo de volta.\nNENHUMA mensagem é enviada ao cliente.`,
     )) return;
+    // avisar o cliente é opt-in, nunca automático
+    const avisar = window.confirm('Quer TAMBÉM avisar o cliente no WhatsApp que a correção foi feita?\n\nOK = avisa · Cancelar = aplica em silêncio');
     setProcessando(c.id);
     setMsg('');
     try {
-      await post(`/api/aprovacoes/${c.id}/aprovar`);
-      setMsg(`✅ Correção ${c.id} aplicada na Yampi e verificada`);
+      await post(`/api/aprovacoes/${c.id}/aprovar`, { avisar_cliente: avisar });
+      setMsg(`✅ Correção ${c.id} aplicada na Yampi e verificada${avisar ? ' — cliente avisado' : ' (sem avisar o cliente)'}`);
       carregar();
     } catch (e: any) {
       setMsg(`Erro na aplicação: ${e.message}`);
@@ -57,10 +59,27 @@ export default function Aprovacoes() {
   const rejeitar = async (c: any) => {
     const motivo = window.prompt(`Motivo da rejeição da correção do pedido ${c.order_id}:`);
     if (motivo === null) return;
+    const avisar = window.confirm('Avisar o CLIENTE que a correção não foi aplicada?\n\nOK = avisa · Cancelar = em silêncio');
     setProcessando(c.id);
     try {
-      await post(`/api/aprovacoes/${c.id}/rejeitar`, { motivo });
-      setMsg(`Correção ${c.id} rejeitada — cliente avisado e encaminhado ao time`);
+      await post(`/api/aprovacoes/${c.id}/rejeitar`, { motivo, avisar_cliente: avisar });
+      setMsg(`Correção ${c.id} rejeitada${avisar ? ' — cliente avisado' : ' (sem avisar o cliente)'}`);
+      carregar();
+    } catch (e: any) {
+      setMsg(`Erro: ${e.message}`);
+    } finally {
+      setProcessando(null);
+    }
+  };
+
+  // Ignorar: tira da fila sem tocar na Yampi e sem falar com o cliente.
+  // Serve pra correção duplicada, teste, ou caso já resolvido na mão.
+  const ignorar = async (c: any) => {
+    if (!window.confirm(`Ignorar a correção do pedido ${c.order_id}?\n\nNada muda na Yampi e NENHUMA mensagem é enviada.`)) return;
+    setProcessando(c.id);
+    try {
+      await post(`/api/aprovacoes/${c.id}/rejeitar`, { motivo: 'ignorada no painel', avisar_cliente: false });
+      setMsg(`Correção ${c.id} ignorada — nada alterado, nada enviado`);
       carregar();
     } catch (e: any) {
       setMsg(`Erro: ${e.message}`);
@@ -110,6 +129,13 @@ export default function Aprovacoes() {
               </button>
               <button className="perigo" disabled={processando === c.id} onClick={() => rejeitar(c)}>
                 ✕ Rejeitar
+              </button>
+              <button
+                disabled={processando === c.id}
+                onClick={() => ignorar(c)}
+                title="Tira da fila sem mexer na Yampi e sem enviar nada ao cliente"
+              >
+                🚫 Ignorar
               </button>
             </div>
           )}

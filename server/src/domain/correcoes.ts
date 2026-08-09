@@ -182,6 +182,9 @@ export async function aprovarCorrecao(
   ctx: FunilCtx,
   correcaoId: number,
   usuario: string,
+  // NADA é enviado ao cliente por padrão: a aprovação é ato interno. Avisar é
+  // decisão explícita de quem clica (pedido do Jorge, 09/08).
+  avisarCliente = false,
 ): Promise<{ ok: boolean; erro?: string }> {
   const res = await rowDaCorrecao(ctx, correcaoId);
   if (!res) return { ok: false, erro: 'correção não encontrada' };
@@ -235,7 +238,7 @@ export async function aprovarCorrecao(
     numero: row.order_number ?? '',
     resumo,
   });
-  if (msg) {
+  if (msg && avisarCliente) {
     await ctx.meta
       .enviarTexto(destinoMensagem(cfgd.modo, foneBr(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
       .catch(async (e) => {
@@ -254,6 +257,7 @@ export async function rejeitarCorrecao(
   correcaoId: number,
   usuario: string,
   motivo: string,
+  avisarCliente = false,
 ): Promise<{ ok: boolean; erro?: string }> {
   const res = await rowDaCorrecao(ctx, correcaoId);
   if (!res) return { ok: false, erro: 'correção não encontrada' };
@@ -267,7 +271,7 @@ export async function rejeitarCorrecao(
   const cfgd = await getDisparosConfig(ctx);
   const oferta = await getOferta(ctx, row.oferta_id);
   const msg = renderCopy(oferta?.copies?.msg_correcao_rejeitada ?? '', { nome: primeiroNome(row.customer_name) });
-  if (msg) {
+  if (msg && avisarCliente) {
     // gotcha 7: falha de envio NUNCA é silenciosa
     await ctx.meta
       .enviarTexto(destinoMensagem(cfgd.modo, foneBr(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)

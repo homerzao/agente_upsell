@@ -6,6 +6,7 @@
 //   2. statuses que batem com um template_msg_id nosso (update; sem log)
 //   3. texto inbound de fone com row em contexto ativo -> injeta no Chatwoot
 // Todo o resto: 200 e descarte, sem gravar.
+import { foneBr } from '../lib/util.js';
 import { parseFlowToken } from './estados.js';
 import { processarMensagemCliente, type AgenteCtx } from './agente/agente.js';
 import {
@@ -181,15 +182,39 @@ export async function processarWebhookMeta(ctx: AgenteCtx, body: any): Promise<v
         // Carimba QUANDO entregou e QUANDO leu (a Meta manda epoch em segundos).
         // COALESCE: fica o PRIMEIRO de cada — reentrega não reescreve a hora.
         const quando = st.timestamp ? new Date(Number(st.timestamp) * 1000).toISOString() : new Date().toISOString();
-        await ctx.db.query(
+        const r = await ctx.db.query(
           `UPDATE wa_upsell SET
              disparo_status='entregue',
              entregue_em=COALESCE(entregue_em, $2::timestamptz),
              lido_em=CASE WHEN $3 THEN COALESCE(lido_em, $2::timestamptz) ELSE lido_em END,
              atualizado_em=now()
-           WHERE template_msg_id=$1`,
+           WHERE template_msg_id=$1
+           RETURNING order_id`,
           [st.id, quando, tipo === 'read'],
         );
+        // O disparo pela rota do TechSAC NÃO devolve o wamid, então a maioria
+        // das rows não tem template_msg_id e nunca casaria por id (descoberto
+        // 09/08: 187 de 189 sem wamid). Casa pelo DESTINATÁRIO: a row mais
+        // recente daquele fone disparada na última hora. Match por DDD +
+        // últimos 8 dígitos (o wa_id vem sem o nono).
+        if (!r.rows.length && st.recipient_id) {
+          const fone = foneBr(String(st.recipient_id));
+          await ctx.db.query(
+            `UPDATE wa_upsell SET
+               disparo_status='entregue',
+               entregue_em=COALESCE(entregue_em, $2::timestamptz),
+               lido_em=CASE WHEN $3 THEN COALESCE(lido_em, $2::timestamptz) ELSE lido_em END,
+               atualizado_em=now()
+             WHERE id = (
+               SELECT id FROM wa_upsell
+               WHERE right(customer_phone, 8) = right($1, 8)
+                 AND substring(customer_phone from 3 for 2) = substring($1 from 3 for 2)
+                 AND disparado_em > now() - interval '1 hour'
+               ORDER BY disparado_em DESC LIMIT 1
+             )`,
+            [fone, quando, tipo === 'read'],
+          );
+        }
       }
     }
   }
