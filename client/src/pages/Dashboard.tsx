@@ -68,6 +68,7 @@ export default function Dashboard() {
               <h2 style={{ marginTop: 0 }}>Funil etapa a etapa</h2>
               <p className="sub" style={{ marginTop: 0 }}>
                 Cada % é sobre a etapa ANTERIOR — é assim que o gargalo aparece sozinho.
+                Quem abriu o flow conta como entregue e lido, mesmo sem o tique azul.
               </p>
               {[
                 { rotulo: 'Enviados', n: dados.funil.enviados, pct: null, cor: '#4a5261' },
@@ -119,6 +120,11 @@ export default function Dashboard() {
                 <span className="sub" style={{ margin: 0 }}>ler → abrir: <b>{fmtDuracao(dados.funil.tempos.ler_ate_abrir_seg)}</b></span>
                 <span className="sub" style={{ margin: 0 }}>abrir → aceitar: <b>{fmtDuracao(dados.funil.tempos.abrir_ate_aceitar_seg)}</b></span>
                 <span className="sub" style={{ margin: 0 }}>(medianas)</span>
+              </div>
+              <div className="sub" style={{ marginTop: 8, fontSize: 12 }}>
+                Confirmação da Meta no período: <b>{dados.funil.conf_entrega}</b> entregas e{' '}
+                <b>{dados.funil.conf_leitura}</b> leituras. É piso, não total — o "lido" só chega
+                de quem mantém a confirmação de leitura ligada no aparelho.
               </div>
             </div>
           )}

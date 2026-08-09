@@ -301,6 +301,36 @@ describe('sweep', () => {
     expect(corrigir.text).toContain("c.status='aguardando_aprovacao'");
     expect(corrigir.text).toContain('NOT EXISTS');
   });
+
+  // Conversa cujo disparo caiu no fallback pela Meta não tem id interno do
+  // TechSAC. Antes ela ficava fora da query de liberação e o agente respondia
+  // pra sempre, junto com o atendimento (achado em produção 09/08, silvia).
+  it('sem id interno: solta assim mesmo, sem chamar o destravar', async () => {
+    const db = dbFunil();
+    db.on(/FROM conversas c JOIN wa_upsell w/, (_v, text) => {
+      expect(text).not.toContain('chatwoot_conv_interno IS NOT NULL');
+      return [{ id: 74, interno: null, store: 'hidrabene', order_id: 169726749 }];
+    });
+    const destravadas: number[] = [];
+    const ctx = ctxTeste({ db });
+    ctx.chatwoot = { destravarConversa: async (id: number) => { destravadas.push(id); } } as any;
+    await sweep(ctx);
+    expect(destravadas).toEqual([]); // não dá pra destravar sem o id interno
+    expect(db.achou(/UPDATE conversas SET liberada_em/).length).toBe(1); // mas sai de campo
+  });
+
+  it('com id interno: destrava no TechSAC e marca liberada', async () => {
+    const db = dbFunil();
+    db.on(/FROM conversas c JOIN wa_upsell w/, () => [
+      { id: 75, interno: 2184288, store: 'hidrabene', order_id: 169610420 },
+    ]);
+    const destravadas: number[] = [];
+    const ctx = ctxTeste({ db });
+    ctx.chatwoot = { destravarConversa: async (id: number) => { destravadas.push(id); } } as any;
+    await sweep(ctx);
+    expect(destravadas).toEqual([2184288]);
+    expect(db.achou(/UPDATE conversas SET liberada_em/).length).toBe(1);
+  });
 });
 
 describe('despedida e aceite tardio (validados em produção 07-08/08)', () => {

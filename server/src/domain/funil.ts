@@ -851,13 +851,27 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
         `SELECT c.id, c.chatwoot_conv_interno AS interno, w.store, w.order_id
          FROM conversas c JOIN wa_upsell w ON w.id = c.wa_upsell_id
          WHERE c.liberada_em IS NULL AND c.status='bot' AND w.status='closed'
-           AND w.store <> 'sandbox' AND c.chatwoot_conv_interno IS NOT NULL
+           AND w.store <> 'sandbox'
            AND c.atualizado_em < now() - ($1 || ' minutes')::interval
          LIMIT 20`,
         [ctx.cfg.WA_UPSELL_LIBERA_CONVERSA_MIN],
       );
       for (const c of paraLiberar.rows) {
         try {
+          // Sem id interno (disparo caiu no fallback pela Meta) não dá pra chamar
+          // o destravar — o display_id devolve 404. Solta assim mesmo: o que
+          // importa é o agente sair de campo, senão a conversa fica "nossa" pra
+          // sempre e a IA responde junto com o atendimento.
+          if (c.interno === null) {
+            await ctx.db.query('UPDATE conversas SET liberada_em=now(), atualizado_em=now() WHERE id=$1', [c.id]);
+            await logEvento(ctx, c.store, {
+              evento: 'conversa_liberada_sem_id_interno',
+              conversa_id: c.id,
+              order_id: c.order_id,
+            });
+            await espelhoNota(ctx, c.store, c.order_id, '🔓 Agente do upsell saiu da conversa (funil encerrado). Não houve chamada de destravar: o disparo não passou pelo TechSAC e o id interno não existe.');
+            continue;
+          }
           await ctx.chatwoot.destravarConversa(Number(c.interno));
           await ctx.db.query('UPDATE conversas SET liberada_em=now(), atualizado_em=now() WHERE id=$1', [c.id]);
           await espelhoNota(ctx, c.store, c.order_id, '🔓 Conversa liberada pro fluxo normal do SAC (funil encerrado, sem interação recente). O agente do upsell não responde mais aqui.');

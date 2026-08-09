@@ -120,33 +120,71 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       // Funil etapa a etapa: cada taxa é sobre a etapa ANTERIOR (não sobre o
       // total), que é o que mostra ONDE está o gargalo. Mais os tempos medianos
       // entre os marcos (entrega → leitura → abertura do flow → aceite → pago).
+      //
+      // MONOTÔNICO POR CONSTRUÇÃO: cada etapa é a UNIÃO da evidência dela com
+      // todas as evidências mais fortes abaixo (quem pagou aceitou; quem aceitou
+      // abriu; quem abriu recebeu e leu). Sem isso o funil compara universos
+      // diferentes — o receipt da Meta só existe pra quem foi disparado depois
+      // que a instrumentação subiu, enquanto `etapa` existe desde o início — e
+      // a taxa estoura (chegou a mostrar 800% de abertura).
+      // A confirmação de leitura/entrega da Meta sai à parte (conf_*): ela mede
+      // o RECEIPT, que é opt-in do aparelho do cliente (quem desliga o tique
+      // azul nunca gera 'read'), então é piso, não verdade.
       const funil = (
         await db.query(
-          `SELECT
-             COUNT(*) FILTER (WHERE disparo_status IS NOT NULL)::int AS enviados,
-             COUNT(*) FILTER (WHERE entregue_em IS NOT NULL)::int AS entregues,
-             COUNT(*) FILTER (WHERE lido_em IS NOT NULL)::int AS lidos,
-             COUNT(*) FILTER (WHERE abriu_flow_em IS NOT NULL OR aceitou_em IS NOT NULL
-                              OR etapa IN ('confirmado','recusado','pago','expirado','pix_enviado','corrigir_sac','corrigido'))::int AS abriram_flow,
-             COUNT(*) FILTER (WHERE aceitou_em IS NOT NULL OR pix_charge_id IS NOT NULL OR etapa IN ('pago','expirado'))::int AS aceites,
-             COUNT(*) FILTER (WHERE etapa='pago')::int AS pagos,
+          `WITH ev AS (
+             SELECT
+               (etapa='pago') AS ev_pago,
+               (aceitou_em IS NOT NULL OR pix_charge_id IS NOT NULL
+                  OR etapa IN ('pix_enviado','pago','expirado')) AS ev_aceite,
+               (abriu_flow_em IS NOT NULL
+                  OR etapa IN ('confirmado','recusado','pago','expirado',
+                               'pix_enviado','corrigir_sac','corrigido')) AS ev_abriu,
+               (lido_em IS NOT NULL) AS rr_leitura,
+               (entregue_em IS NOT NULL) AS rr_entrega,
+               etapa, lido_em, abriu_flow_em, aceitou_em, disparado_em, criado_em
+             FROM wa_upsell
+             WHERE ${filtro} AND disparo_status IN ('enviado','entregue')
+           ), f AS (
+             SELECT *,
+               (ev_pago OR ev_aceite) AS s_aceite,
+               (ev_pago OR ev_aceite OR ev_abriu) AS s_abriu,
+               (ev_pago OR ev_aceite OR ev_abriu OR rr_leitura) AS s_lido,
+               (ev_pago OR ev_aceite OR ev_abriu OR rr_leitura OR rr_entrega) AS s_entregue
+             FROM ev
+           )
+           SELECT
+             COUNT(*)::int AS enviados,
+             COUNT(*) FILTER (WHERE s_entregue)::int AS entregues,
+             COUNT(*) FILTER (WHERE s_lido)::int AS lidos,
+             COUNT(*) FILTER (WHERE s_abriu)::int AS abriram_flow,
+             COUNT(*) FILTER (WHERE s_aceite)::int AS aceites,
+             COUNT(*) FILTER (WHERE ev_pago)::int AS pagos,
              COUNT(*) FILTER (WHERE etapa='recusado')::int AS recusas,
              COUNT(*) FILTER (WHERE etapa IN ('corrigir_sac','corrigido'))::int AS correcoes,
              COUNT(*) FILTER (WHERE etapa='expirado')::int AS expirados,
+             COUNT(*) FILTER (WHERE rr_entrega)::int AS conf_entrega,
+             COUNT(*) FILTER (WHERE rr_leitura)::int AS conf_leitura,
              ROUND(percentile_cont(0.5) WITHIN GROUP (
-               ORDER BY EXTRACT(EPOCH FROM (lido_em - COALESCE(disparado_em, criado_em)))
-             ) FILTER (WHERE lido_em IS NOT NULL))::int AS seg_ate_ler,
+               ORDER BY EXTRACT(EPOCH FROM (lido_em - disparado_em))
+             ) FILTER (WHERE lido_em IS NOT NULL AND disparado_em IS NOT NULL
+                         AND lido_em >= disparado_em))::int AS seg_ate_ler,
              ROUND(percentile_cont(0.5) WITHIN GROUP (
                ORDER BY EXTRACT(EPOCH FROM (abriu_flow_em - lido_em))
-             ) FILTER (WHERE abriu_flow_em IS NOT NULL AND lido_em IS NOT NULL))::int AS seg_ler_ate_abrir,
+             ) FILTER (WHERE abriu_flow_em IS NOT NULL AND lido_em IS NOT NULL
+                         AND abriu_flow_em >= lido_em))::int AS seg_ler_ate_abrir,
              ROUND(percentile_cont(0.5) WITHIN GROUP (
                ORDER BY EXTRACT(EPOCH FROM (aceitou_em - abriu_flow_em))
-             ) FILTER (WHERE aceitou_em IS NOT NULL AND abriu_flow_em IS NOT NULL))::int AS seg_abrir_ate_aceitar
-           FROM wa_upsell WHERE ${filtro} AND disparo_status IS NOT NULL`,
+             ) FILTER (WHERE aceitou_em IS NOT NULL AND abriu_flow_em IS NOT NULL
+                         AND aceitou_em >= abriu_flow_em))::int AS seg_abrir_ate_aceitar
+           FROM f`,
           [de, ate],
         )
       ).rows[0];
-      const pct = (parte: number, base: number) => (base > 0 ? Math.round((parte / base) * 1000) / 10 : 0);
+      // teto de 100%: com a união acima não deveria estourar, mas se um dia
+      // estourar de novo o Jorge vê um número plausível, não um 800%
+      const pct = (parte: number, base: number) =>
+        base > 0 ? Math.min(100, Math.round((parte / base) * 1000) / 10) : 0;
       const f = {
         enviados: Number(funil.enviados),
         entregues: Number(funil.entregues),
@@ -157,6 +195,9 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         recusas: Number(funil.recusas),
         correcoes: Number(funil.correcoes),
         expirados: Number(funil.expirados),
+        // receipt cru da Meta (opt-in do cliente): mede a instrumentação, não o funil
+        conf_entrega: Number(funil.conf_entrega),
+        conf_leitura: Number(funil.conf_leitura),
         // cada uma sobre a etapa anterior
         taxa_entrega: pct(Number(funil.entregues), Number(funil.enviados)),
         taxa_leitura: pct(Number(funil.lidos), Number(funil.entregues)),

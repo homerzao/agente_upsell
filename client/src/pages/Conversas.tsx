@@ -306,8 +306,20 @@ export default function Conversas() {
                       : 'Sem mensagens ainda'}
                   </div>
                   <div className="rodape">
-                    <span className={`etiqueta ${c.status === 'humano' ? 'erro' : 'pago'}`}>
-                      {c.status === 'humano' ? '👤 humano' : '🤖 bot'}
+                    {/* uma etiqueta só, três estados — 'bot' continuava aparecendo
+                        depois de devolver a conversa e dava a impressão de que
+                        estava tudo travado com a gente */}
+                    <span
+                      className={`etiqueta ${c.status === 'humano' ? 'erro' : c.liberada_em ? '' : 'pago'}`}
+                      title={
+                        c.status === 'humano'
+                          ? 'Alguém do time assumiu — o bot não responde'
+                          : c.liberada_em
+                            ? 'Devolvida ao atendimento normal: o bot não responde mais aqui'
+                            : 'Com o bot: ele responde e a conversa fica reservada ao funil'
+                      }
+                    >
+                      {c.status === 'humano' ? '👤 humano' : c.liberada_em ? '🔓 no SAC' : '🤖 bot'}
                     </span>
                     {c.etapa && <span className="etiqueta">{ETAPA_LABEL[c.etapa] ?? c.etapa}</span>}
                     <span className="sub" style={{ margin: 0 }}>{c.mensagens} msg</span>
@@ -444,7 +456,9 @@ export default function Conversas() {
                 </div>
               ) : (
                 <div className="composer-travado">
-                  🤖 O bot está conduzindo esta conversa. Clique em <b>Assumir</b> para responder você mesmo.
+                  {sel?.liberada_em
+                    ? <>🔓 Conversa devolvida ao atendimento — responda pelo TechSAC. O bot não fala mais aqui.</>
+                    : <>🤖 O bot está conduzindo esta conversa. Clique em <b>Assumir</b> para responder você mesmo.</>}
                 </div>
               )}
             </>
