@@ -30,9 +30,17 @@ describe('montarSystemPrompt (guardrails)', () => {
       endereco: 'Rua A, 10, Belém/PA',
       rastreio: null,
     },
+    linkRastreio: 'https://rastreio.hidrabene.com.br/status/151722',
     pagamento: null,
     correcoesPendentes: 1,
   };
+
+  it('manda a página de acompanhamento em vez de "não tem rastreio"', () => {
+    const p = montarSystemPrompt(contexto);
+    expect(p).toContain('https://rastreio.hidrabene.com.br/status/151722');
+    expect(p).toContain('48h');
+    expect(p).toContain('Nunca diga só "ainda não tem rastreio"');
+  });
 
   it('inclui os guardrails inegociáveis', () => {
     const p = montarSystemPrompt(contexto);

@@ -45,6 +45,9 @@ const schema = z.object({
   OPENAI_PRECO_OUTPUT_1M: z.coerce.number().default(0),
 
   WA_FONE_TESTE: z.string().default('5591992148793'),
+  // Página de acompanhamento do pedido: base + NÚMERO do pedido Yampi.
+  // Funciona desde o pagamento; o código de rastreio aparece lá quando despacha.
+  RASTREIO_URL_BASE: z.string().default('https://rastreio.hidrabene.com.br/status/'),
   WA_UPSELL_TEMPLATE_CONFIRMA: z.string().default('confirma_pedido_up'),
   // v6 (data_exchange): o "Confirmar Pedido" chama o data channel /flow/upsell
   WA_UPSELL_FLOW_ID: z.string().default('3548925675262517'),

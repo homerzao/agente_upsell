@@ -87,10 +87,14 @@ async function montarContexto(ctx: AgenteCtx, row: WaUpsellRow): Promise<Context
     `SELECT COUNT(*)::int AS n FROM correcoes WHERE wa_upsell_id=$1 AND status='aguardando_aprovacao'`,
     [row.id],
   );
+  // Link de acompanhamento = base + NÚMERO do pedido Yampi (não o order_id interno)
+  const numero = pedido?.numero || row.order_number || '';
+  const base = ctx.cfg.RASTREIO_URL_BASE.replace(/\/*$/, '/');
   return {
     row,
     oferta,
     pedido,
+    linkRastreio: numero ? `${base}${numero}` : null,
     pagamento: pg.rows[0] ? { valor: valorBr(Number(pg.rows[0].valor)), pago_em: String(pg.rows[0].pago_em) } : null,
     correcoesPendentes: pend.rows[0]?.n ?? 0,
   };

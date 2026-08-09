@@ -7,6 +7,7 @@ import type { Oferta, WaUpsellRow } from '../tipos.js';
 export type ContextoAgente = {
   row: WaUpsellRow;
   oferta: Oferta | null;
+  linkRastreio: string | null; // página de acompanhamento (vale desde o pagamento)
   pedido: {
     numero: string;
     status: string | null;
@@ -66,7 +67,9 @@ CONTEXTO DO PEDIDO (Yampi):
 - Cliente: ${c.row.customer_name ?? ''} (CPF ${mascararCpf(c.row.customer_cpf)})
 ${itens ? `- Itens:\n${itens}` : ''}
 - Endereço de entrega: ${c.pedido?.endereco || 'não disponível'}
-- Rastreio: ${c.pedido?.rastreio ?? 'ainda não disponível'}
+- Código de rastreio: ${c.pedido?.rastreio ?? 'ainda não gerado (o pedido é despachado em até 48h úteis)'}
+${c.linkRastreio ? `- PÁGINA DE ACOMPANHAMENTO (funciona desde o pagamento; mande SEMPRE que o cliente perguntar de entrega, prazo, rastreio ou "cadê meu pedido"): ${c.linkRastreio}
+  Nunca diga só "ainda não tem rastreio": mande o link e explique que o código aparece nele assim que o pedido for despachado (até 48h úteis).` : ''}
 
 ESTADO DO FUNIL:
 - Etapa: ${c.row.etapa} (${c.row.status})
