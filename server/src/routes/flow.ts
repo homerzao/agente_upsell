@@ -29,7 +29,8 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
     });
     return fallbackExpirada;
   }
-  await waupSet(ctx, ref.store, ref.orderId, { etapa: 'confirmado' });
+  // carimba a abertura do flow (mede leitura -> abertura no dashboard)
+  await waupSet(ctx, ref.store, ref.orderId, { etapa: 'confirmado', abriu_flow_em: new Date().toISOString() });
   return {
     screen: 'TICKET',
     data: { titulo_ticket: data.titulo_ticket ?? '', saudacao_ok: data.saudacao_ok ?? '' },

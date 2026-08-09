@@ -334,6 +334,21 @@ export default function Conversas() {
                   <button onClick={() => setAutoOn(!autoOn)} title={`auto a cada ${INTERVALO_MS / 1000}s`}>
                     {autoOn ? '⏸' : '▶'}
                   </button>
+                  {sel.pix_codigo && (
+                    <button
+                      className="primario"
+                      title="Copia o código PIX desta cobrança pra você mandar/conferir"
+                      onClick={() => {
+                        navigator.clipboard.writeText(sel.pix_codigo).then(
+                          () => setAviso('📋 Código PIX copiado'),
+                          () => setErro('não consegui copiar — o navegador bloqueou'),
+                        );
+                      }}
+                    >
+                      📋 Copiar PIX
+                      {sel.pix_expira_em && new Date(sel.pix_expira_em) < new Date() ? ' (vencido)' : ''}
+                    </button>
+                  )}
                   <button
                     onClick={() => arquivar(!sel.arquivada_em)}
                     title={sel.arquivada_em ? 'Tirar do arquivo' : 'Arquivar (some da lista; veja em Arquivadas)'}

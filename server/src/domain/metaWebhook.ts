@@ -159,13 +159,20 @@ export async function processarWebhookMeta(ctx: AgenteCtx, body: any): Promise<v
       // Status de entrega: SÓ os que batem com um template nosso (o UPDATE é o
       // filtro); os demais são descartados sem log.
       for (const st of ch.value?.statuses ?? []) {
-        if (['delivered', 'read'].includes(String(st.status)) && st.id) {
-          await ctx.db.query(
-            `UPDATE wa_upsell SET disparo_status='entregue', atualizado_em=now()
-             WHERE template_msg_id=$1 AND disparo_status='enviado'`,
-            [st.id],
-          );
-        }
+        const tipo = String(st.status);
+        if (!st.id || !['delivered', 'read'].includes(tipo)) continue;
+        // Carimba QUANDO entregou e QUANDO leu (a Meta manda epoch em segundos).
+        // COALESCE: fica o PRIMEIRO de cada — reentrega não reescreve a hora.
+        const quando = st.timestamp ? new Date(Number(st.timestamp) * 1000).toISOString() : new Date().toISOString();
+        await ctx.db.query(
+          `UPDATE wa_upsell SET
+             disparo_status='entregue',
+             entregue_em=COALESCE(entregue_em, $2::timestamptz),
+             lido_em=CASE WHEN $3 THEN COALESCE(lido_em, $2::timestamptz) ELSE lido_em END,
+             atualizado_em=now()
+           WHERE template_msg_id=$1`,
+          [st.id, quando, tipo === 'read'],
+        );
       }
     }
   }

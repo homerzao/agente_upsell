@@ -325,6 +325,7 @@ export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise
     await waupSet(ctx, row.store, row.order_id, {
       template_msg_id: msgId,
       disparo_status: 'enviado',
+      disparado_em: new Date().toISOString(),
     });
     await criarConversaChatwoot(ctx, row, cfgd.modo, { interno: internoTechSAC, display: displayTechSAC }).then(
       () => espelhoNota(ctx, row.store, row.order_id,
@@ -511,7 +512,7 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
     // nfm_reply de 'confirmar' é o fechamento TERMINAL do flow (o data_exchange
     // intermediário passa pelo /flow/upsell, não por aqui) — despedida sai.
     if (atual?.status === 'open') {
-      await waupSet(ctx, store, orderId, { etapa: 'confirmado' });
+      await waupSet(ctx, store, orderId, { etapa: 'confirmado', abriu_flow_em: new Date().toISOString() });
     }
     if (atual) await enviarDespedida(ctx, atual);
   }
@@ -618,6 +619,7 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
     // o PIX vivo reabre a row e o sweeper de 10min segue dono do fechamento
     status: 'open',
     etapa: 'pix_enviado',
+    aceitou_em: new Date().toISOString(),
     pix_charge_id: pix.chargeId,
     pix_codigo: pix.codigo,
     pix_enviado_em: new Date().toISOString(),

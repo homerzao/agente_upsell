@@ -24,6 +24,7 @@ const TAXA_UPSELL_SITE = 8.5; // referência: upsell do site converte ~8,5%
 // atualiza a lista e o cabeçalho da conversa aberta fica mostrando dado velho.
 const SELECT_CONVERSA = `
   SELECT c.*, w.order_id, w.order_number, w.customer_name, w.customer_phone, w.etapa, w.status AS funil_status,
+    w.pix_codigo, w.pix_expira_em,
     (SELECT COUNT(*)::int FROM mensagens_ia m WHERE m.conversa_id = c.id) AS mensagens,
     (SELECT COALESCE(SUM(m.custo),0)::numeric(12,6) FROM mensagens_ia m WHERE m.conversa_id = c.id) AS custo,
     (SELECT m.texto FROM mensagens_ia m WHERE m.conversa_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultima_mensagem,
@@ -116,6 +117,62 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           [de, ate],
         )
       ).rows[0];
+      // Funil etapa a etapa: cada taxa é sobre a etapa ANTERIOR (não sobre o
+      // total), que é o que mostra ONDE está o gargalo. Mais os tempos medianos
+      // entre os marcos (entrega → leitura → abertura do flow → aceite → pago).
+      const funil = (
+        await db.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE disparo_status IS NOT NULL)::int AS enviados,
+             COUNT(*) FILTER (WHERE entregue_em IS NOT NULL)::int AS entregues,
+             COUNT(*) FILTER (WHERE lido_em IS NOT NULL)::int AS lidos,
+             COUNT(*) FILTER (WHERE abriu_flow_em IS NOT NULL OR aceitou_em IS NOT NULL
+                              OR etapa IN ('confirmado','recusado','pago','expirado','pix_enviado','corrigir_sac','corrigido'))::int AS abriram_flow,
+             COUNT(*) FILTER (WHERE aceitou_em IS NOT NULL OR pix_charge_id IS NOT NULL OR etapa IN ('pago','expirado'))::int AS aceites,
+             COUNT(*) FILTER (WHERE etapa='pago')::int AS pagos,
+             COUNT(*) FILTER (WHERE etapa='recusado')::int AS recusas,
+             COUNT(*) FILTER (WHERE etapa IN ('corrigir_sac','corrigido'))::int AS correcoes,
+             COUNT(*) FILTER (WHERE etapa='expirado')::int AS expirados,
+             ROUND(percentile_cont(0.5) WITHIN GROUP (
+               ORDER BY EXTRACT(EPOCH FROM (lido_em - COALESCE(disparado_em, criado_em)))
+             ) FILTER (WHERE lido_em IS NOT NULL))::int AS seg_ate_ler,
+             ROUND(percentile_cont(0.5) WITHIN GROUP (
+               ORDER BY EXTRACT(EPOCH FROM (abriu_flow_em - lido_em))
+             ) FILTER (WHERE abriu_flow_em IS NOT NULL AND lido_em IS NOT NULL))::int AS seg_ler_ate_abrir,
+             ROUND(percentile_cont(0.5) WITHIN GROUP (
+               ORDER BY EXTRACT(EPOCH FROM (aceitou_em - abriu_flow_em))
+             ) FILTER (WHERE aceitou_em IS NOT NULL AND abriu_flow_em IS NOT NULL))::int AS seg_abrir_ate_aceitar
+           FROM wa_upsell WHERE ${filtro} AND disparo_status IS NOT NULL`,
+          [de, ate],
+        )
+      ).rows[0];
+      const pct = (parte: number, base: number) => (base > 0 ? Math.round((parte / base) * 1000) / 10 : 0);
+      const f = {
+        enviados: Number(funil.enviados),
+        entregues: Number(funil.entregues),
+        lidos: Number(funil.lidos),
+        abriram_flow: Number(funil.abriram_flow),
+        aceites: Number(funil.aceites),
+        pagos: Number(funil.pagos),
+        recusas: Number(funil.recusas),
+        correcoes: Number(funil.correcoes),
+        expirados: Number(funil.expirados),
+        // cada uma sobre a etapa anterior
+        taxa_entrega: pct(Number(funil.entregues), Number(funil.enviados)),
+        taxa_leitura: pct(Number(funil.lidos), Number(funil.entregues)),
+        taxa_abertura: pct(Number(funil.abriram_flow), Number(funil.lidos)),
+        taxa_aceite: pct(Number(funil.aceites), Number(funil.abriram_flow)),
+        taxa_pagamento: pct(Number(funil.pagos), Number(funil.aceites)),
+        taxa_recusa: pct(Number(funil.recusas), Number(funil.abriram_flow)),
+        taxa_correcao: pct(Number(funil.correcoes), Number(funil.abriram_flow)),
+        // ponta a ponta
+        taxa_pago_no_total: pct(Number(funil.pagos), Number(funil.enviados)),
+        tempos: {
+          ate_ler_seg: funil.seg_ate_ler === null ? null : Number(funil.seg_ate_ler),
+          ler_ate_abrir_seg: funil.seg_ler_ate_abrir === null ? null : Number(funil.seg_ler_ate_abrir),
+          abrir_ate_aceitar_seg: funil.seg_abrir_ate_aceitar === null ? null : Number(funil.seg_abrir_ate_aceitar),
+        },
+      };
       const receita = (
         await db.query(
           `SELECT COALESCE(SUM(valor),0)::numeric(12,2) AS receita FROM wa_upsell_pagamentos
@@ -145,6 +202,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           taxa_pago: d ? Math.round((cards.pagos / d) * 1000) / 10 : 0,
           referencia_site: TAXA_UPSELL_SITE,
         },
+        funil: f,
         diario,
       };
     });
