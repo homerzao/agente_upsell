@@ -632,7 +632,11 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
   // em mensagem de sessão separada pra facilitar copiar com 1 toque.
   try {
     await ctx.meta.enviarTexto(fone, pix.codigo);
-    await espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): código PIX copia-e-cola da oferta — R$ ${valorBr(oferta.preco)}, anunciado ${ctx.cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN} min / vale de fato ${ctx.cfg.WA_UPSELL_PIX_TTL_MIN} min (charge ${pix.chargeId ?? '?'}).`);
+    await espelhoNota(
+      ctx, store, orderId,
+      `🤖 Enviado (WhatsApp): código PIX copia-e-cola da oferta — R$ ${valorBr(oferta.preco)}, anunciado ${ctx.cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN} min / vale de fato ${ctx.cfg.WA_UPSELL_PIX_TTL_MIN} min (charge ${pix.chargeId ?? '?'}).`,
+      '[código PIX copia-e-cola enviado ao cliente]', // no histórico da IA sem o código cru
+    );
   } catch (e) {
     await logEvento(ctx, store, { erro: 'pix_msg_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
   }
@@ -719,7 +723,8 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
     .enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msgPago)
     .then(
       () => espelhoNota(ctx, row.store, row.order_id,
-        `💰 OFERTA PAGA — R$ ${valorBr(valor)} via PIX (charge ${chargeId}). Faturamento adiciona o SKU ${oferta?.sku_yampi ?? '?'} ao pedido.\n\n🤖 Enviado (WhatsApp): ${msgPago}`),
+        `💰 OFERTA PAGA — R$ ${valorBr(valor)} via PIX (charge ${chargeId}). Faturamento adiciona o SKU ${oferta?.sku_yampi ?? '?'} ao pedido.\n\n🤖 Enviado (WhatsApp): ${msgPago}`,
+        msgPago),
       async (e) => {
         await logEvento(ctx, row.store, { erro: 'confirmacao_pago_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
       },

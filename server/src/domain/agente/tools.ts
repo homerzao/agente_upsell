@@ -3,7 +3,7 @@ import type { ToolDef } from '../../services/openai.js';
 import { mascararCpf, num, valorBr } from '../../lib/util.js';
 import { registrarCorrecao, type CamposCorrecao } from '../correcoes.js';
 import { encaminharHumano } from '../handoff.js';
-import { getRow, normalizarPedidoYampi, reenviarPix, type FunilCtx } from '../funil.js';
+import { getRow, logEvento, normalizarPedidoYampi, reenviarPix, type FunilCtx } from '../funil.js';
 import type { WaUpsellRow } from '../tipos.js';
 
 export const TOOL_DEFS: ToolDef[] = [
@@ -56,6 +56,21 @@ export const TOOL_DEFS: ToolDef[] = [
               receiver: { type: 'string', description: 'Nome de quem recebe' },
             },
           },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recusar_oferta',
+      description:
+        'Use quando o cliente disser POR MENSAGEM que não quer a oferta ("não, obrigada", "deixa pra próxima", "não tenho interesse"). Fecha a oferta na hora: para o lembrete de PIX e o aviso de expiração, que soariam insistentes com quem já recusou. Não usa isso se ele só tirou dúvida.',
+      parameters: {
+        type: 'object',
+        properties: {
+          motivo: { type: 'string', description: 'O que o cliente disse, em poucas palavras' },
         },
         required: [],
       },
@@ -143,6 +158,27 @@ export async function executarTool(
       };
       const r = await registrarCorrecao(ctx, row.store, row.order_id, campos);
       return { handoff: false, resultado: r };
+    }
+    case 'recusar_oferta': {
+      // Cliente recusou POR MENSAGEM. Sem isso o PIX seguia vivo e ele ainda
+      // levava lembrete e aviso de expiração — insistindo com quem já disse não
+      // (aconteceu com uma cliente no piloto, 09/08). Nunca mexe em 'pago'.
+      const fechou = await ctx.db.query(
+        `UPDATE wa_upsell SET status='closed', etapa='recusado', atualizado_em=now()
+         WHERE store=$1 AND order_id=$2 AND status='open' AND etapa <> 'pago'
+         RETURNING order_id`,
+        [row.store, row.order_id],
+      );
+      await logEvento(ctx, row.store, {
+        evento: 'recusa_por_mensagem',
+        order_id: row.order_id,
+        motivo: String(args.motivo ?? '').slice(0, 200),
+        fechou: fechou.rows.length > 0,
+      });
+      return {
+        handoff: false,
+        resultado: { ok: true, oferta_encerrada: fechou.rows.length > 0 },
+      };
     }
     case 'encaminhar_humano': {
       await encaminharHumano(ctx, conversa, String(args.motivo ?? 'solicitado'), String(args.resumo ?? ''));

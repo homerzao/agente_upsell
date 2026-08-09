@@ -69,9 +69,11 @@ describe('montarSystemPrompt (guardrails)', () => {
 });
 
 describe('tools do agente', () => {
-  it('expõe exatamente as 5 tools da spec', () => {
+  // 5 da spec + recusar_oferta (piloto real 09/08: cliente recusou por
+  // mensagem e continuava recebendo lembrete de PIX e aviso de expiração)
+  it('expõe as tools da spec mais a de recusa por mensagem', () => {
     expect(TOOL_DEFS.map((t) => t.function.name).sort()).toEqual([
-      'consultar_pedido', 'encaminhar_humano', 'reenviar_pix', 'registrar_correcao', 'status_oferta',
+      'consultar_pedido', 'encaminhar_humano', 'recusar_oferta', 'reenviar_pix', 'registrar_correcao', 'status_oferta',
     ]);
   });
 });
