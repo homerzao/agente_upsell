@@ -81,6 +81,16 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
   app.register(async (adm) => {
     adm.addHook('preHandler', auth.requireAdmin);
     const usuario = (req: any): string => req.adminUser ?? 'api';
+    // :id não-numérico ia direto pro Postgres e voltava 500 cru (22P02).
+    // NaN aqui vira 400 antes de tocar o banco.
+    const idParam = (req: any, reply: any): number | null => {
+      const n = Number(req.params?.id);
+      if (!Number.isInteger(n) || n <= 0) {
+        reply.code(400).send({ erro: 'id inválido' });
+        return null;
+      }
+      return n;
+    };
 
     /* ----- dashboard / funil ----- */
     adm.get('/api/dashboard', async (req) => {
@@ -395,23 +405,28 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
     // Uma conversa só: o painel usa pra manter o cabeçalho da conversa aberta
     // em dia (etapa, custo, contador) sem depender de achá-la na página da lista.
     adm.get('/api/conversas/:id', async (req, reply) => {
-      const r = await db.query(`${SELECT_CONVERSA} WHERE c.id=$1`, [Number((req.params as any).id)]);
+      const id = idParam(req, reply);
+      if (id === null) return reply;
+      const r = await db.query(`${SELECT_CONVERSA} WHERE c.id=$1`, [id]);
       if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
       return { conversa: r.rows[0] };
     });
 
-    adm.get('/api/conversas/:id/mensagens', async (req) => ({
-      mensagens: (
-        await db.query('SELECT * FROM mensagens_ia WHERE conversa_id=$1 ORDER BY id LIMIT 500', [
-          Number((req.params as any).id),
-        ])
-      ).rows,
-    }));
+    adm.get('/api/conversas/:id/mensagens', async (req, reply) => {
+      const id = idParam(req, reply);
+      if (id === null) return reply;
+      return {
+        mensagens: (
+          await db.query('SELECT * FROM mensagens_ia WHERE conversa_id=$1 ORDER BY id LIMIT 500', [id])
+        ).rows,
+      };
+    });
 
     // Assumir a conversa: o bot PARA de responder e o operador passa a falar.
     // Pré-requisito pra enviar mensagem pelo painel (sem isso, os dois falavam junto).
     adm.post('/api/conversas/:id/assumir', async (req, reply) => {
-      const id = Number((req.params as any).id);
+      const id = idParam(req, reply);
+      if (id === null) return reply;
       const r = await db.query('SELECT * FROM conversas WHERE id=$1', [id]);
       if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
       await encaminharHumano(
@@ -426,7 +441,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
 
     // Devolver ao bot (volta a responder sozinho)
     adm.post('/api/conversas/:id/devolver', async (req, reply) => {
-      const id = Number((req.params as any).id);
+      const id = idParam(req, reply);
+      if (id === null) return reply;
       const r = await db.query('SELECT * FROM conversas WHERE id=$1', [id]);
       if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
       await db.query(
@@ -446,7 +462,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
 
     // Enviar mensagem como operador (sai pelo Chatwoot, mesmo caminho do agente).
     adm.post('/api/conversas/:id/mensagem', async (req, reply) => {
-      const id = Number((req.params as any).id);
+      const id = idParam(req, reply);
+      if (id === null) return reply;
       const body = z.object({ texto: z.string().trim().min(1).max(4000) }).parse(req.body ?? {});
       const r = await db.query(
         `SELECT c.*, w.customer_phone FROM conversas c
