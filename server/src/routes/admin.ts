@@ -11,6 +11,7 @@ import {
   getDisparosConfig, logEvento,
 } from '../domain/funil.js';
 import { aprovarCorrecao, rejeitarCorrecao } from '../domain/correcoes.js';
+import { BLOCOS_PADRAO } from '../domain/agente/contexto.js';
 import { encaminharHumano } from '../domain/handoff.js';
 import { decidirEnvioOperador } from '../domain/operador.js';
 import { seedSandbox } from '../domain/seed.js';
@@ -606,6 +607,46 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         flow_id: cfg.WA_UPSELL_FLOW_ID,
         treinamento: config.treinamento,
       };
+    });
+
+    // Blocos do system prompt: ler todos (default + override) e editar um.
+    // É o que permite mudar REGRA da IA sem deploy.
+    adm.get('/api/prompt', async () => {
+      const r = await db.query('SELECT chave, conteudo, atualizado_em, atualizado_por FROM prompt_blocos');
+      const over = new Map(r.rows.map((x: any) => [x.chave, x]));
+      return {
+        blocos: Object.entries(BLOCOS_PADRAO).map(([chave, padrao]) => {
+          const o = over.get(chave) as any;
+          return {
+            chave,
+            padrao,
+            conteudo: o?.conteudo ?? padrao,
+            editado: Boolean(o),
+            atualizado_em: o?.atualizado_em ?? null,
+            atualizado_por: o?.atualizado_por ?? null,
+          };
+        }),
+      };
+    });
+
+    adm.put('/api/prompt/:chave', async (req, reply) => {
+      const chave = String((req.params as any).chave);
+      if (!(chave in BLOCOS_PADRAO)) {
+        return reply.code(400).send({ erro: `bloco desconhecido: ${chave}`, validos: Object.keys(BLOCOS_PADRAO) });
+      }
+      const body = z.object({ conteudo: z.string().max(20000), restaurar: z.boolean().optional() }).parse(req.body ?? {});
+      if (body.restaurar) {
+        await db.query('DELETE FROM prompt_blocos WHERE chave=$1', [chave]);
+        await auditar(usuario(req), 'prompt_restaurado', chave, null);
+        return { ok: true, chave, conteudo: BLOCOS_PADRAO[chave], editado: false };
+      }
+      await db.query(
+        `INSERT INTO prompt_blocos (chave, conteudo, atualizado_por) VALUES ($1,$2,$3)
+         ON CONFLICT (chave) DO UPDATE SET conteudo=EXCLUDED.conteudo, atualizado_em=now(), atualizado_por=EXCLUDED.atualizado_por`,
+        [chave, body.conteudo, usuario(req)],
+      );
+      await auditar(usuario(req), 'prompt_editado', chave, { tamanho: body.conteudo.length });
+      return { ok: true, chave, editado: true };
     });
 
     // Treinamento do agente IA (estilo de escrita) — editável, entra no system prompt

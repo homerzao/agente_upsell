@@ -165,7 +165,12 @@ export async function processarMensagemCliente(
 
   try {
     const contexto = await montarContexto(ctx, row);
-    const system = montarSystemPrompt(contexto, cfgd.treinamento);
+    // Blocos sobrescritos no banco valem na hora, sem deploy (prompt_blocos)
+    const over = await ctx.db
+      .query('SELECT chave, conteudo FROM prompt_blocos')
+      .then((r: any) => Object.fromEntries(r.rows.map((x: any) => [x.chave, x.conteudo])))
+      .catch(() => ({}));
+    const system = montarSystemPrompt(contexto, cfgd.treinamento, over);
     const historico = await historicoMensagens(ctx, conversa.id, (row as any).criado_em ?? null);
     const messages: ChatMessage[] = [{ role: 'system', content: system }, ...historico];
     // (a mensagem atual já entrou no histórico via INSERT acima)
@@ -205,12 +210,33 @@ export async function processarMensagemCliente(
 
     if (respostaFinal) {
       const promptHash = crypto.createHash('sha256').update(JSON.stringify(messages)).digest('hex');
-      await responder(respostaFinal);
-      await ctx.db.query(
-        `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [conversa.id, 'out', respostaFinal, promptHash, { system, mensagens: messages.length }, totalTokens, totalCusto],
-      );
+      // O modelo pode decidir CALAR: cliente que só mandou "ok"/"obrigada" não
+      // precisa de mais uma mensagem simpática (vira loop de cordialidade).
+      // Nunca deixar o marcador vazar pro cliente.
+      const calar = /\[SEM_RESPOSTA\]/i.test(respostaFinal);
+      const limpo = respostaFinal.replace(/\[SEM_RESPOSTA\]/gi, '').trim();
+      if (calar && !limpo) {
+        await ctx.db.query(
+          `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)
+           VALUES ($1,'out',$2,$3,$4,$5,$6)`,
+          [
+            conversa.id,
+            '🔒 registro interno: o agente decidiu não responder (mensagem de encerramento do cliente)',
+            promptHash,
+            { system, mensagens: messages.length, silencio: true },
+            totalTokens,
+            totalCusto,
+          ],
+        );
+      } else {
+        const texto = limpo || respostaFinal;
+        await responder(texto);
+        await ctx.db.query(
+          `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [conversa.id, 'out', texto, promptHash, { system, mensagens: messages.length }, totalTokens, totalCusto],
+        );
+      }
     }
   } catch (e) {
     await logEvento(ctx, row.store, {

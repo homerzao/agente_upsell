@@ -281,3 +281,38 @@ describe('trava por etapa do funil', () => {
     }
   });
 });
+
+// Cliente que manda só "ok"/"obrigada" não precisa de mais uma mensagem
+// simpática — vira loop de cordialidade (feedback do Jorge, 09/08).
+describe('silêncio do agente', () => {
+  const openaiQueCala = (conteudo: string) => ({
+    async chat() {
+      return {
+        message: { role: 'assistant', content: conteudo },
+        usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 },
+      };
+    },
+    custo: () => 0,
+  });
+
+  it('[SEM_RESPOSTA]: não manda nada pro cliente e registra o silêncio', async () => {
+    const { db, mensagens } = dbAgente();
+    const cw = chatwootFake();
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai: openaiQueCala('[SEM_RESPOSTA]') };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'ok');
+    expect(cw.enviadas.length).toBe(0); // cliente não recebe nada
+    // o INSERT do silêncio fixa 'out' no SQL, então o texto vem noutra posição
+    expect(mensagens.some((m: any) => m.some((v: any) => String(v).includes('não responder')))).toBe(true);
+  });
+
+  it('marcador nunca vaza junto de texto real', async () => {
+    const { db } = dbAgente();
+    const cw = chatwootFake();
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai: openaiQueCala('Prontinho! [SEM_RESPOSTA]') };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'obrigada');
+    expect(cw.enviadas[0].content).toBe('Prontinho!');
+    expect(cw.enviadas[0].content).not.toContain('SEM_RESPOSTA');
+  });
+});
