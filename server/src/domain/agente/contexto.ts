@@ -77,6 +77,9 @@ que a oferta encerrou ou que o PIX não vale se os campos abaixo disserem o opos
 - Etapa: ${c.row.etapa} (${c.row.status})
 - PIX: ${pixVivo ? `ATIVO, expira em ${c.row.pix_expira_em}` : c.row.pix_charge_id ? 'expirado' : 'não gerado'}
 - Pagamento da oferta: ${c.pagamento ? `CONFIRMADO (R$ ${c.pagamento.valor} em ${c.pagamento.pago_em})` : 'não realizado'}
+${c.pagamento ? `  ⚠️ O kit JÁ ESTÁ GARANTIDO. Ele não aparece na lista de itens acima porque a lista é do
+  momento da compra: o time adiciona o kit ao MESMO pedido antes de faturar. Vai tudo no mesmo
+  pacote, com o mesmo frete. NUNCA diga que a oferta "não foi adicionada" — ela foi paga.` : ''}
 - Correções aguardando aprovação: ${c.correcoesPendentes}
 
 OFERTA: ${oferta}${treinamento.trim() ? `
