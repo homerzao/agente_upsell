@@ -2,7 +2,8 @@
 // Toda mensagem enviada é logada em mensagens_ia com o prompt/contexto usado.
 import crypto from 'node:crypto';
 import type { OpenAIService, ChatMessage } from '../../services/openai.js';
-import { foneBr, mesmoFone, soDigitos, valorBr } from '../../lib/util.js';
+import { foneBr, mesmoFone, primeiroNome, soDigitos, valorBr } from '../../lib/util.js';
+import { LABEL_HUMANO, LABEL_UPSELL } from '../../services/chatwoot.js';
 import { getDisparosConfig, getOferta, getRow, logEvento, normalizarPedidoYampi, type FunilCtx } from '../funil.js';
 import { encaminharHumano } from '../handoff.js';
 import { montarSystemPrompt, type ContextoAgente } from './contexto.js';
@@ -217,6 +218,20 @@ export async function processarMensagemCliente(
       conversa_id: conversa.id,
       detalhe: String((e as Error).message).slice(0, 300),
     });
-    await encaminharHumano(ctx, conversa, 'erro do agente', String((e as Error).message).slice(0, 200));
+    // Falha TÉCNICA (rede, API do modelo) NÃO cala o bot pra sempre: antes isso
+    // marcava a conversa como 'humano' e, sem ninguém do outro lado, o cliente
+    // ficava falando sozinho (aconteceu no teste do Jorge, 09/08). Avisa o SAC
+    // pela nota + label, pede um minutinho e segue disponível na próxima msg.
+    await ctx.chatwoot
+      ?.enviarMensagem(
+        chatwootConversationId,
+        `⚠️ Falha técnica ao gerar a resposta (${String((e as Error).message).slice(0, 120)}). O bot segue ativo e tenta na próxima mensagem — se o cliente estiver esperando, alguém do time pode assumir.`,
+        true,
+      )
+      .catch(() => {});
+    await ctx.chatwoot?.setLabels(chatwootConversationId, [LABEL_UPSELL, LABEL_HUMANO]).catch(() => {});
+    await responder(
+      `Só um minutinho, ${primeiroNome(row.customer_name)} — deu um probleminha aqui do meu lado. Já te respondo 🙏`,
+    ).catch(() => {});
   }
 }

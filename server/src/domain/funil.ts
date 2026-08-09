@@ -375,17 +375,33 @@ export async function criarConversaChatwoot(
 // Meta — atendente que abrir a conversa vê o funil inteiro (pedido do Jorge,
 // 08/08/2026: "preciso que seja replicado como msg interna no chatwoot").
 // Best-effort: falha do espelho NUNCA derruba o funil.
-export async function espelhoNota(ctx: FunilCtx, store: string, orderId: number, texto: string): Promise<void> {
-  if (!ctx.chatwoot) return;
+export async function espelhoNota(
+  ctx: FunilCtx,
+  store: string,
+  orderId: number,
+  texto: string,
+  msgEnviadaAoCliente?: string,
+): Promise<void> {
   try {
     const r = await ctx.db.query(
-      `SELECT c.chatwoot_conversation_id AS cid FROM conversas c
+      `SELECT c.id, c.chatwoot_conversation_id AS cid FROM conversas c
        JOIN wa_upsell w ON w.id = c.wa_upsell_id
        WHERE w.store=$1 AND w.order_id=$2 ORDER BY c.id DESC LIMIT 1`,
       [store, orderId],
     );
-    const cid = r.rows[0]?.cid;
-    if (cid) await ctx.chatwoot.enviarMensagem(Number(cid), texto, true);
+    const conversa = r.rows[0];
+    if (!conversa) return;
+    // A mensagem que o FUNIL mandou entra no histórico do agente. Sem isso a IA
+    // não sabe o que o sistema já falou com o cliente e contradiz o próprio
+    // funil — no teste do Jorge (09/08) ela disse "a oferta encerrou" 14s depois
+    // de o funil mandar o PIX, porque simplesmente não tinha visto o PIX sair.
+    if (msgEnviadaAoCliente) {
+      await ctx.db.query(
+        `INSERT INTO mensagens_ia (conversa_id, direcao, texto, contexto) VALUES ($1,'out',$2,$3)`,
+        [conversa.id, msgEnviadaAoCliente, { origem: 'funil' }],
+      ).catch(() => {});
+    }
+    if (ctx.chatwoot && conversa.cid) await ctx.chatwoot.enviarMensagem(Number(conversa.cid), texto, true);
   } catch {
     /* espelho é só contexto */
   }
@@ -429,7 +445,7 @@ export async function enviarDespedida(ctx: FunilCtx, row: WaUpsellRow): Promise<
   });
   if (!msg) return;
   await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).then(
-    () => espelhoNota(ctx, row.store, row.order_id, `🤖 Enviado (WhatsApp): ${msg}`),
+    () => espelhoNota(ctx, row.store, row.order_id, `🤖 Enviado (WhatsApp): ${msg}`, msg),
     async (e) => {
       await logEvento(ctx, row.store, { erro: 'msg_despedida_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
     },
@@ -464,7 +480,7 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
       });
       if (msg) {
         await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msg).then(
-          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n✏️ Cliente pediu CORREÇÃO de dados — conversa segue com o agente/atendimento.`),
+          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n✏️ Cliente pediu CORREÇÃO de dados — conversa segue com o agente/atendimento.`, msg),
           async (e) => {
             await logEvento(ctx, store, { erro: 'msg_corrigir_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
           },
@@ -519,7 +535,7 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
       });
       if (msg) {
         await ctx.meta.enviarTexto(destino(ctx, cfgdT.modo, row.customer_phone), msg).then(
-          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n⏰ Cliente tentou aceitar a oferta FORA da janela.`),
+          () => espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): ${msg}\n\n⏰ Cliente tentou aceitar a oferta FORA da janela.`, msg),
           async (e) => {
             await logEvento(ctx, store, { erro: 'msg_aceite_tardio_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
           },
@@ -553,7 +569,7 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
     minutos: ctx.cfg.WA_UPSELL_PIX_TTL_MIN,
   });
   await ctx.meta.enviarTexto(fone, msgAceite).then(
-    () => espelhoNota(ctx, store, orderId, `🏆 Cliente ACEITOU a oferta.\n\n🤖 Enviado (WhatsApp): ${msgAceite}`),
+    () => espelhoNota(ctx, store, orderId, `🏆 Cliente ACEITOU a oferta.\n\n🤖 Enviado (WhatsApp): ${msgAceite}`, msgAceite),
     async (e) => {
       await logEvento(ctx, store, { erro: 'msg_aceite_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
     },
