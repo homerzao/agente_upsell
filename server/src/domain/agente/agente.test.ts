@@ -251,3 +251,33 @@ describe('resolverConversa', () => {
     expect(r?.row.order_id).toBe(169610420);
   });
 });
+
+// Antes de abrir o flow o cliente NÃO conhece o Ticket: falar da oferta aí
+// queima a surpresa e joga preço fora de contexto (piloto real, 09/08).
+describe('trava por etapa do funil', () => {
+  const base = {
+    oferta: { ...ofertaBase(), preco: 49.91, preco_de: 149.9, copies: COPIES_DEFAULT } as any,
+    pedido: { numero: '151722', status: 'paid', itens: [], total: 79.8, endereco: 'Rua A', rastreio: null },
+    linkRastreio: null,
+    pagamento: null,
+    correcoesPendentes: 0,
+  };
+  it('aguardando_confirmacao: manda calar sobre a oferta e empurrar o botão', () => {
+    const p = montarSystemPrompt({ ...base, row: rowBase({ etapa: 'aguardando_confirmacao' }) as any });
+    expect(p).toContain('AINDA NÃO ABRIU');
+    expect(p).toContain('PROIBIDO');
+    expect(p).toContain('Confirmar Pedido');
+  });
+  it('confirmado: libera a venda (cliente está vendo o Ticket)', () => {
+    const p = montarSystemPrompt({ ...base, row: rowBase({ etapa: 'confirmado' }) as any });
+    expect(p).toContain('JÁ ABRIU');
+    expect(p).not.toContain('PROIBIDO nesta etapa');
+  });
+  it('recusado/expirado: proíbe insistir', () => {
+    for (const etapa of ['recusado', 'expirado', 'sem_resposta']) {
+      const p = montarSystemPrompt({ ...base, row: rowBase({ etapa }) as any });
+      expect(p).toContain('ENCERROU');
+      expect(p).toContain('NÃO ofereça de novo');
+    }
+  });
+});
