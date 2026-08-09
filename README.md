@@ -24,6 +24,12 @@ npm install
 npm run dev                   # server :3000 + painel :5173
 ```
 
+Mexer só na UI, sem banco nem Docker (painel com API falsa em :5199):
+
+```bash
+cd client && npm run dev:mock
+```
+
 Testes e typecheck:
 
 ```bash

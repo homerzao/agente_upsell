@@ -11,10 +11,24 @@ import {
   getDisparosConfig, logEvento,
 } from '../domain/funil.js';
 import { aprovarCorrecao, rejeitarCorrecao } from '../domain/correcoes.js';
+import { encaminharHumano } from '../domain/handoff.js';
+import { decidirEnvioOperador } from '../domain/operador.js';
 import { seedSandbox } from '../domain/seed.js';
+import { LABEL_UPSELL } from '../services/chatwoot.js';
 import { soDigitos } from '../lib/util.js';
 
 const TAXA_UPSELL_SITE = 8.5; // referência: upsell do site converte ~8,5%
+
+// Uma conversa da lista/detalhe: mesmos campos nos dois lugares, senão o painel
+// atualiza a lista e o cabeçalho da conversa aberta fica mostrando dado velho.
+const SELECT_CONVERSA = `
+  SELECT c.*, w.order_id, w.order_number, w.customer_name, w.customer_phone, w.etapa, w.status AS funil_status,
+    (SELECT COUNT(*)::int FROM mensagens_ia m WHERE m.conversa_id = c.id) AS mensagens,
+    (SELECT COALESCE(SUM(m.custo),0)::numeric(12,6) FROM mensagens_ia m WHERE m.conversa_id = c.id) AS custo,
+    (SELECT m.texto FROM mensagens_ia m WHERE m.conversa_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultima_mensagem,
+    (SELECT m.direcao FROM mensagens_ia m WHERE m.conversa_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultima_direcao,
+    (SELECT m.criado_em FROM mensagens_ia m WHERE m.conversa_id = c.id ORDER BY m.id DESC LIMIT 1) AS ultima_em
+  FROM conversas c LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id`;
 
 const mascarar = (s: string): string => (s ? `${s.slice(0, 4)}…${s.slice(-2)}` : '(vazio)');
 
@@ -358,10 +372,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       vals.push(limit, offset);
       const rows = (
         await db.query(
-          `SELECT c.*, w.order_id, w.order_number, w.customer_name, w.etapa,
-             (SELECT COUNT(*)::int FROM mensagens_ia m WHERE m.conversa_id = c.id) AS mensagens,
-             (SELECT COALESCE(SUM(m.custo),0)::numeric(12,6) FROM mensagens_ia m WHERE m.conversa_id = c.id) AS custo
-           FROM conversas c LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id
+          `${SELECT_CONVERSA}
            ${cond}
            ORDER BY c.atualizado_em DESC LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
           vals,
@@ -381,6 +392,14 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       return { conversas: rows, total, limit, offset, chatwoot_link_base: linkBase };
     });
 
+    // Uma conversa só: o painel usa pra manter o cabeçalho da conversa aberta
+    // em dia (etapa, custo, contador) sem depender de achá-la na página da lista.
+    adm.get('/api/conversas/:id', async (req, reply) => {
+      const r = await db.query(`${SELECT_CONVERSA} WHERE c.id=$1`, [Number((req.params as any).id)]);
+      if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
+      return { conversa: r.rows[0] };
+    });
+
     adm.get('/api/conversas/:id/mensagens', async (req) => ({
       mensagens: (
         await db.query('SELECT * FROM mensagens_ia WHERE conversa_id=$1 ORDER BY id LIMIT 500', [
@@ -388,6 +407,83 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         ])
       ).rows,
     }));
+
+    // Assumir a conversa: o bot PARA de responder e o operador passa a falar.
+    // Pré-requisito pra enviar mensagem pelo painel (sem isso, os dois falavam junto).
+    adm.post('/api/conversas/:id/assumir', async (req, reply) => {
+      const id = Number((req.params as any).id);
+      const r = await db.query('SELECT * FROM conversas WHERE id=$1', [id]);
+      if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
+      await encaminharHumano(
+        ctx,
+        { id, chatwoot_conversation_id: r.rows[0].chatwoot_conversation_id },
+        'assumida no painel',
+        `Operador ${usuario(req)} assumiu a conversa pelo painel do upsell.`,
+      );
+      await auditar(usuario(req), 'conversa_assumida', `conversa:${id}`, null);
+      return { ok: true };
+    });
+
+    // Devolver ao bot (volta a responder sozinho)
+    adm.post('/api/conversas/:id/devolver', async (req, reply) => {
+      const id = Number((req.params as any).id);
+      const r = await db.query('SELECT * FROM conversas WHERE id=$1', [id]);
+      if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
+      await db.query(
+        `UPDATE conversas SET status='bot', handoff_motivo=NULL, atualizado_em=now() WHERE id=$1`,
+        [id],
+      );
+      const convId = r.rows[0].chatwoot_conversation_id;
+      if (ctx.chatwoot && convId) {
+        await ctx.chatwoot.setLabels(convId, [LABEL_UPSELL]).catch(() => {});
+        if (cfg.CHATWOOT_AGENT_ID) {
+          await ctx.chatwoot.atribuirAgente(convId, Number(cfg.CHATWOOT_AGENT_ID)).catch(() => {});
+        }
+      }
+      await auditar(usuario(req), 'conversa_devolvida_ao_bot', `conversa:${id}`, null);
+      return { ok: true };
+    });
+
+    // Enviar mensagem como operador (sai pelo Chatwoot, mesmo caminho do agente).
+    adm.post('/api/conversas/:id/mensagem', async (req, reply) => {
+      const id = Number((req.params as any).id);
+      const body = z.object({ texto: z.string().trim().min(1).max(4000) }).parse(req.body ?? {});
+      const r = await db.query(
+        `SELECT c.*, w.customer_phone FROM conversas c
+         LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id WHERE c.id=$1`,
+        [id],
+      );
+      if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
+      const conversa = r.rows[0];
+      const cfgd = await getDisparosConfig(ctx);
+      const decisao = decidirEnvioOperador({
+        statusConversa: conversa.status,
+        modo: cfgd.modo,
+        fone: conversa.customer_phone,
+        foneTeste: cfg.WA_FONE_TESTE,
+        temChatwoot: Boolean(ctx.chatwoot && conversa.chatwoot_conversation_id),
+      });
+      if (!decisao.pode || !ctx.chatwoot) {
+        return reply.code(400).send({ erro: decisao.pode ? 'conversa sem Chatwoot configurado' : decisao.mensagem });
+      }
+      try {
+        await ctx.chatwoot.enviarMensagem(conversa.chatwoot_conversation_id, body.texto);
+      } catch (e) {
+        await logEvento(ctx, 'hidrabene', {
+          erro: 'msg_operador_falhou',
+          conversa_id: id,
+          detalhe: String((e as Error).message).slice(0, 300),
+        });
+        return reply.code(502).send({ erro: `falha ao enviar: ${String((e as Error).message).slice(0, 200)}` });
+      }
+      await db.query(
+        `INSERT INTO mensagens_ia (conversa_id, direcao, texto, contexto) VALUES ($1,'out',$2,$3)`,
+        [id, body.texto, { origem: 'operador', usuario: usuario(req) }],
+      );
+      await db.query('UPDATE conversas SET atualizado_em=now() WHERE id=$1', [id]);
+      await auditar(usuario(req), 'msg_operador', `conversa:${id}`, { texto: body.texto.slice(0, 200) });
+      return { ok: true };
+    });
 
     /* ----- relatórios ----- */
     adm.get('/api/relatorios', async (req) => {
