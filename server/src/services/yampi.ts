@@ -52,14 +52,16 @@ export function criarYampi(
   const comment = (orderId: number | string, texto: string) =>
     req('POST', `/orders/${orderId}/comments`, { comments: texto });
 
-  const listarWebhooks = async (): Promise<any[]> => (await req('GET', '/merchants/webhooks')).data ?? [];
+  // Caminho é /webhooks (NÃO /merchants/webhooks — esse dá 404; ver
+  // docs/yampi-api-map.txt do agente_ecom).
+  const listarWebhooks = async (): Promise<any[]> => (await req('GET', '/webhooks')).data ?? [];
 
   // Cria e ATIVA o webhook (nasce active:false; o PUT com a lista de events ativa).
   async function criarWebhookAtivo(url: string, events: string[]): Promise<any> {
-    const criado = await req('POST', '/merchants/webhooks', { url, events });
+    const criado = await req('POST', '/webhooks', { url, events });
     const id = criado?.data?.id ?? criado?.id;
     if (id) {
-      await req('PUT', `/merchants/webhooks/${id}`, { url, events, active: true });
+      await req('PUT', `/webhooks/${id}`, { url, events, active: true });
     }
     return criado;
   }
