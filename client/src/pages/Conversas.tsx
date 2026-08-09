@@ -58,6 +58,8 @@ export default function Conversas() {
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [verArquivadas, setVerArquivadas] = useState(false);
+  // Padrão: só conversas com mensagem trocada (as sem interação poluem a lista)
+  const [verTodas, setVerTodas] = useState(false);
 
   const selId = sel?.id ?? null;
   const fimDoChat = useRef<HTMLDivElement | null>(null);
@@ -70,8 +72,9 @@ export default function Conversas() {
     if (buscaAtiva) params.set('q', buscaAtiva);
     if (status) params.set('status', status);
     if (verArquivadas) params.set('arquivadas', '1');
+    if (verTodas) params.set('todas', '1');
     setDados(await get(`/api/conversas?${params}`));
-  }, [pagina, buscaAtiva, status, verArquivadas]);
+  }, [pagina, buscaAtiva, status, verArquivadas, verTodas]);
 
   // Detalhe + mensagens da conversa aberta: sem isso o cabeçalho (etapa, custo,
   // contador) congelava no estado de quando ela foi clicada.
@@ -233,6 +236,19 @@ export default function Conversas() {
               title="Alterna entre conversas ativas e arquivadas"
             >
               {verArquivadas ? '↩ Ativas' : '🗄 Arquivadas'}
+            </button>
+            <button
+              onClick={() => {
+                setPagina(0);
+                setVerTodas(!verTodas);
+              }}
+              title={
+                verTodas
+                  ? 'Mostrando todas, inclusive quem nunca respondeu'
+                  : 'Mostrando só conversas com mensagem trocada'
+              }
+            >
+              {verTodas ? '💬 Só com interação' : '👁 Ver todas'}
             </button>
             {buscaAtiva && (
               <button

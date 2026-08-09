@@ -40,7 +40,24 @@ export function criarYampi(
 
   // PUT espelhado: o caller monta o corpo COMPLETO (ver correcoes.montarPuts).
   const putOrder = (orderId: number | string, body: unknown) => req('PUT', `/orders/${orderId}`, body);
-  const putCustomer = (customerId: number | string, body: unknown) => req('PUT', `/customers/${customerId}`, body);
+  // O PUT de cliente NÃO aceita o mesmo formato que o GET devolve (descoberto
+  // aplicando uma correção real na mão, 09/08): exige `homephone` (que o GET
+  // não tem) e rejeita o objeto aninhado `phone`. Sem esta tradução: 422
+  // "homephone: Campo obrigatório" na hora de aprovar a correção.
+  function corpoCustomerParaPut(body: Record<string, any>): Record<string, any> {
+    const fone = body.phone?.full_number ?? body.phone?.number ?? body.homephone ?? '';
+    const pronto: Record<string, any> = {
+      ...body,
+      homephone: body.homephone ?? fone,
+      cellphone: body.cellphone ?? fone,
+    };
+    delete pronto.phone; // objeto do GET; o PUT usa homephone/cellphone
+    delete pronto.addresses; // relações não vão no PUT
+    delete pronto.orders;
+    return pronto;
+  }
+  const putCustomer = (customerId: number | string, body: Record<string, any>) =>
+    req('PUT', `/customers/${customerId}`, corpoCustomerParaPut(body));
 
   // Endereço de entrega do pedido tem recurso próprio: orders/{id}/addresses/{addressId}
   const getOrderAddresses = async (orderId: number | string): Promise<any[]> =>

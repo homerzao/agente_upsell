@@ -373,6 +373,12 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       }
       // Arquivadas somem da lista padrão; ?arquivadas=1 mostra só elas
       where.push(q.arquivadas === '1' ? 'c.arquivada_em IS NOT NULL' : 'c.arquivada_em IS NULL');
+      // Conversa sem NENHUMA mensagem trocada não interessa pra avaliar o
+      // agente e polui a lista (a maioria: template enviado e cliente não
+      // respondeu). Padrão é esconder; ?todas=1 mostra tudo.
+      if (q.todas !== '1') {
+        where.push('EXISTS (SELECT 1 FROM mensagens_ia m WHERE m.conversa_id = c.id)');
+      }
       const busca = String(q.q ?? '').trim();
       if (busca) {
         // nome, fone, order_id ou número do pedido — um campo só de busca no painel

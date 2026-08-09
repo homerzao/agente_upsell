@@ -145,8 +145,14 @@ async function rowDaCorrecao(ctx: FunilCtx, correcaoId: number): Promise<{ corre
 export function verificarReadback(bodyEnviado: Record<string, unknown>, lido: Record<string, any>, chaves: string[]): string[] {
   const divergentes: string[] = [];
   for (const k of chaves) {
-    const esperado = String(bodyEnviado[k] ?? '').trim();
-    const atual = String(lido?.[k] ?? '').trim();
+    let esperado = String(bodyEnviado[k] ?? '').trim();
+    let atual = String(lido?.[k] ?? '').trim();
+    // A Yampi normaliza e-mail para minúsculas: comparar exato acusaria
+    // divergência numa correção que deu certo (visto na prática, 09/08).
+    if (k === 'email') {
+      esperado = esperado.toLowerCase();
+      atual = atual.toLowerCase();
+    }
     if (esperado !== atual) divergentes.push(k);
   }
   return divergentes;
