@@ -122,8 +122,22 @@ describe('processarMensagemCliente', () => {
     expect(cw.enviadas.length).toBe(0);
   });
 
-  it('cliente pede humano: handoff imediato + resposta cordial', async () => {
+  // Feedback do Jorge (09/08): transferia na PRIMEIRA menção a "atendente" sem
+  // nem saber o que a cliente queria — e o caso quase sempre era resolvível.
+  it('primeira menção a atendente NÃO transfere (tenta entender antes)', async () => {
     const { db } = dbAgente();
+    db.on(/COUNT\(\*\)::int AS n FROM mensagens_ia/, () => [{ n: 1 }]); // só esta menção
+    const cw = chatwootFake();
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai: null };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'quero falar com um atendente');
+    // sem OPENAI o fluxo cai no handoff de indisponibilidade, mas NÃO na
+    // mensagem de "te passando" da transferência imediata
+    expect(cw.enviadas.some((m) => m.content.includes('te passando'))).toBe(false);
+  });
+
+  it('cliente INSISTE em falar com humano: aí sim transfere na hora', async () => {
+    const { db } = dbAgente();
+    db.on(/COUNT\(\*\)::int AS n FROM mensagens_ia/, () => [{ n: 2 }]); // já pediu antes
     const cw = chatwootFake();
     const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai: null };
     await processarMensagemCliente(ctx, 555, '5511987654321', 'quero falar com um atendente');

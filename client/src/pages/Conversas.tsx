@@ -2,6 +2,31 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ETAPA_LABEL, fmtDataHora, get, post } from '../api';
 
 const POR_PAGINA = 50;
+
+// A IA guarda a descrição da mídia com um marcador [midia:ID]; o humano precisa
+// VER a imagem / ouvir o áudio, não só ler a descrição (pedido do Jorge, 09/08).
+const idDaMidia = (texto: string): number | null => {
+  const m = /\[midia:(\d+)\]/.exec(String(texto ?? ''));
+  return m ? Number(m[1]) : null;
+};
+const textoSemMarcador = (texto: string) => String(texto ?? '').replace(/\s*\[midia:\d+\]/, '');
+const midiaDaMensagem = (texto: string) => {
+  const id = idDaMidia(texto);
+  if (!id) return null;
+  const ehAudio = /\[áudio/i.test(String(texto ?? ''));
+  const url = `/api/midia/${id}`;
+  return ehAudio ? (
+    <audio controls src={url} style={{ display: 'block', maxWidth: 260, marginBottom: 6 }} />
+  ) : (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img
+        src={url}
+        alt="imagem enviada pelo cliente"
+        style={{ display: 'block', maxWidth: 240, maxHeight: 320, borderRadius: 8, marginBottom: 6, cursor: 'zoom-in' }}
+      />
+    </a>
+  );
+};
 const INTERVALO_MS = 10000;
 
 // Avatar por iniciais, com cor derivada do nome (mesma pessoa, mesma cor sempre).
@@ -385,7 +410,8 @@ export default function Conversas() {
                     key={m.id}
                     className={`msg ${m.direcao}${m.contexto?.origem === 'operador' ? ' operador' : ''}`}
                   >
-                    {m.texto}
+                    {midiaDaMensagem(m.texto)}
+                    {textoSemMarcador(m.texto)}
                     <div className="meta">
                       {fmtDataHora(m.criado_em)}
                       {m.contexto?.origem === 'operador' ? ` · ${m.contexto.usuario ?? 'operador'}` : ''}

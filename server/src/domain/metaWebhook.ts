@@ -57,20 +57,32 @@ async function processarNfmReply(ctx: FunilCtx, msg: any): Promise<void> {
 // A injeção é só espelho pro SAC ver a thread; falha nela não cala o agente.
 // Áudio e imagem viram TEXTO antes de chegar no agente (Whisper e visão).
 // Sem isso o cliente mandava um áudio e a IA nem sabia que existiu.
-async function midiaParaTexto(ctx: AgenteCtx, msg: any): Promise<string> {
+async function midiaParaTexto(ctx: AgenteCtx, msg: any, conversaId?: number | null): Promise<string> {
   const tipo = String(msg.type ?? '');
   const media = msg.audio ?? msg.voice ?? msg.image ?? msg.document ?? null;
   if (!media?.id || !ctx.openai) return '';
   try {
     const { bytes, mime } = await ctx.meta.baixarMidia(String(media.id));
+    // Guarda o arquivo pro HUMANO ver no painel (a descrição é pro contexto da
+    // IA; quem vai atender precisa ver a imagem/ouvir o áudio). Limite de 8MB.
+    let midiaId: number | null = null;
+    if (conversaId && bytes.byteLength <= 8 * 1024 * 1024) {
+      midiaId = (
+        await ctx.db.query(
+          `INSERT INTO midias (conversa_id, tipo, mime, bytes) VALUES ($1,$2,$3,$4) RETURNING id`,
+          [conversaId, tipo === 'image' ? 'image' : 'audio', mime, Buffer.from(bytes)],
+        ).then((r: any) => r.rows[0]?.id ?? null).catch(() => null)
+      );
+    }
+    const marca = midiaId ? ` [midia:${midiaId}]` : '';
     if (tipo === 'audio' || tipo === 'voice') {
       const texto = await ctx.openai.transcrever(bytes, mime);
-      return texto ? `[áudio do cliente, transcrito] ${texto}` : '';
+      return texto ? `[áudio do cliente, transcrito]${marca} ${texto}` : '';
     }
     if (tipo === 'image') {
       const desc = await ctx.openai.descreverImagem(bytes, mime, String(msg.image?.caption ?? ''));
       const legenda = String(msg.image?.caption ?? '').trim();
-      return desc ? `[imagem enviada pelo cliente] ${desc}${legenda ? `\n(legenda: ${legenda})` : ''}` : '';
+      return desc ? `[imagem enviada pelo cliente]${marca} ${desc}${legenda ? `\n(legenda: ${legenda})` : ''}` : '';
     }
     return '';
   } catch (e) {
@@ -88,10 +100,15 @@ async function midiaParaTexto(ctx: AgenteCtx, msg: any): Promise<string> {
 
 async function processarTextoInbound(ctx: AgenteCtx, msg: any): Promise<void> {
   const fone = String(msg.from ?? '');
-  const texto = String(msg.text?.body ?? '').trim() || (await midiaParaTexto(ctx, msg));
-  if (!fone || !texto) return;
-  const row = await buscarRowContextoAtivo(ctx, fone);
-  if (!row) return; // fora de contexto: SAC comum, descarta sem gravar
+  const soTexto = String(msg.text?.body ?? '').trim();
+  // precisa da row ANTES da mídia: a mídia é guardada ligada à conversa
+  const row = soTexto ? await buscarRowContextoAtivo(ctx, fone) : await buscarRowContextoAtivo(ctx, fone);
+  if (!fone || !row) return; // fora de contexto: SAC comum, descarta sem gravar
+  const conversaId = (
+    await ctx.db.query('SELECT id FROM conversas WHERE wa_upsell_id=$1 ORDER BY id DESC LIMIT 1', [row.id])
+  ).rows[0]?.id ?? null;
+  const texto = soTexto || (await midiaParaTexto(ctx, msg, conversaId));
+  if (!texto) return;
   await logEvento(ctx, row.store, { origem: 'meta', tipo: 'msg_cliente', order_id: row.order_id, wamid: msg.id ?? null });
   if (!ctx.chatwoot) return; // sem Chatwoot o agente não tem por onde responder
   const cfgd = await getDisparosConfig(ctx);

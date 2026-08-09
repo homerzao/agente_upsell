@@ -219,10 +219,23 @@ export async function responderComIA(
     await ctx.chatwoot.enviarMensagem(chatwootConversationId, msg);
   };
 
+  // "Falar com atendente" NÃO transfere na hora (feedback do Jorge, 09/08: ela
+  // jogava pro humano sem nem saber o que a cliente queria — e quase sempre o
+  // caso era resolvível). Só transfere direto se a pessoa INSISTIR: a segunda
+  // vez na mesma conversa vale como insistência. Fora isso, o modelo decide
+  // (tool encaminhar_humano) depois de tentar entender e resolver.
   if (pedeHumano(texto)) {
-    await encaminharHumano(ctx, conversa, 'cliente pediu humano', `Cliente escreveu: "${texto.slice(0, 200)}"`);
-    await responder('Claro! Já estou te passando pra alguém do nosso time — só um instante. 💙').catch(() => {});
-    return;
+    const jaPediu = await ctx.db.query(
+      `SELECT COUNT(*)::int AS n FROM mensagens_ia
+       WHERE conversa_id=$1 AND direcao='in' AND texto ~* '(atendente|humano|pessoa de verdade|falar com algu)'`,
+      [conversa.id],
+    );
+    if (Number(jaPediu.rows[0]?.n ?? 0) > 1) {
+      await encaminharHumano(ctx, conversa, 'cliente insistiu em falar com humano', `Cliente escreveu: "${texto.slice(0, 200)}"`);
+      await responder('Claro! Já estou te passando pra alguém do time — só um instante 💙').catch(() => {});
+      return;
+    }
+    // primeira vez: segue pro modelo, que vai perguntar o que ela precisa
   }
 
   if (!ctx.openai || !ctx.cfg.OPENAI_API_KEY) {

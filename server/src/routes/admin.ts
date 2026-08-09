@@ -481,6 +481,19 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       return { conversa: r.rows[0] };
     });
 
+    // Serve a mídia que o cliente mandou (o humano precisa VER a imagem, não só
+    // a descrição que a IA fez dela). Autenticada como o resto do painel.
+    adm.get('/api/midia/:id', async (req, reply) => {
+      const id = idParam(req, reply);
+      if (id === null) return reply;
+      const r = await db.query('SELECT mime, bytes FROM midias WHERE id=$1', [id]);
+      if (!r.rows.length) return reply.code(404).send({ erro: 'mídia não encontrada' });
+      return reply
+        .header('Content-Type', r.rows[0].mime || 'application/octet-stream')
+        .header('Cache-Control', 'private, max-age=86400')
+        .send(r.rows[0].bytes);
+    });
+
     adm.get('/api/conversas/:id/mensagens', async (req, reply) => {
       const id = idParam(req, reply);
       if (id === null) return reply;
@@ -540,8 +553,20 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           await ctx.chatwoot.atribuirAgente(convId, Number(cfg.CHATWOOT_AGENT_ID)).catch(() => {});
         }
       }
-      await auditar(usuario(req), 'conversa_devolvida_ao_bot', `conversa:${id}`, null);
-      return { ok: true };
+      // Devolver ao bot faz ele RETOMAR: as mensagens que o cliente mandou
+      // enquanto estava com o humano voltam pra fila e são respondidas na volta
+      // do sweeper (senão o bot ficaria mudo até o cliente escrever de novo).
+      const retomar = Boolean((req.body as any)?.responder_pendentes ?? true);
+      if (retomar) {
+        await db.query(
+          `UPDATE mensagens_ia SET processada=false
+           WHERE conversa_id=$1 AND direcao='in'
+             AND id > COALESCE((SELECT MAX(id) FROM mensagens_ia WHERE conversa_id=$1 AND direcao='out'), 0)`,
+          [id],
+        );
+      }
+      await auditar(usuario(req), 'conversa_devolvida_ao_bot', `conversa:${id}`, { retomar });
+      return { ok: true, retomando: retomar };
     });
 
     // Enviar mensagem como operador (sai pelo Chatwoot, mesmo caminho do agente).
