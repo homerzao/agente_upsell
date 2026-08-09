@@ -202,18 +202,36 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           rate_por_hora: z.number().int().min(0).optional(),
           pausado: z.boolean().optional(),
           amostra_restante: z.number().int().min(0).nullable().optional(),
+          debug_meta: z.boolean().optional(),
         })
         .parse(req.body ?? {});
       const atual = await getDisparosConfig(ctx);
       const novo = { ...atual, ...body };
       await db.query(
         `UPDATE disparos_config SET modo=$1, cpf_filtro=$2, rate_por_hora=$3, pausado=$4,
-           amostra_restante=$5, atualizado_em=now() WHERE id=1`,
+           amostra_restante=$5, debug_meta=$6, atualizado_em=now() WHERE id=1`,
         [novo.modo, (novo.cpf_filtro ?? []).map(soDigitos).filter(Boolean), novo.rate_por_hora,
-         novo.pausado, novo.amostra_restante],
+         novo.pausado, novo.amostra_restante, novo.debug_meta],
       );
       await auditar(usuario(req), 'disparo_config', null, { antes: atual, depois: novo });
       return { ok: true, config: novo };
+    });
+
+    // Aba Logs: eventos do sistema com filtro (debug da Meta, erros, tudo)
+    adm.get('/api/logs', async (req) => {
+      const q = req.query as Record<string, string>;
+      const limit = Math.min(Math.max(Number(q.limit ?? 100), 1), 500);
+      const tipo = q.tipo ?? 'tudo';
+      const cond =
+        tipo === 'debug' ? `WHERE payload->>'debug' IS NOT NULL`
+        : tipo === 'erro' ? `WHERE payload->>'erro' IS NOT NULL`
+        : tipo === 'funil' ? `WHERE payload->>'debug' IS NULL AND store <> 'pagarme'`
+        : '';
+      const rows = (
+        await db.query(`SELECT id, store, payload, created_at FROM wa_events ${cond} ORDER BY id DESC LIMIT $1`, [limit])
+      ).rows;
+      const config = await getDisparosConfig(ctx);
+      return { logs: rows, debug_meta: config.debug_meta };
     });
 
     adm.post('/api/disparo/manual', async (req, reply) => {
@@ -440,6 +458,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         webhooks: {
           yampi: `${base}/webhook/yampi?t=${cfg.webhookTokenYampi}`,
           pagarme: `${base}/webhook/pagarme?t=${cfg.webhookTokenPagarme}`,
+          chatwoot: `${base}/webhook/chatwoot?t=${cfg.webhookTokenChatwoot}`,
           meta: `${base}/webhook/meta`,
         },
         modelo_ia: cfg.OPENAI_MODEL,

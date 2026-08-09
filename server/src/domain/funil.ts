@@ -77,6 +77,7 @@ export async function getDisparosConfig(ctx: FunilCtx): Promise<DisparosConfig> 
     pausado: row.pausado ?? true,
     amostra_restante: row.amostra_restante ?? null,
     treinamento: row.treinamento ?? '',
+    debug_meta: row.debug_meta ?? false,
   };
 }
 

@@ -3,8 +3,10 @@
 // SEMPRE responder 200 rápido: processamento pesado não pode derrubar o webhook.
 import type { FastifyInstance } from 'fastify';
 import type { AgenteCtx } from '../domain/agente/agente.js';
-import { FILA_META, confirmarPagamento, logEvento, processarPedidoYampi } from '../domain/funil.js';
-import { processarWebhookMeta } from '../domain/metaWebhook.js';
+import { processarMensagemCliente } from '../domain/agente/agente.js';
+import { FILA_META, confirmarPagamento, getDisparosConfig, logEvento, processarPedidoYampi } from '../domain/funil.js';
+import { confirmarWamid, liberarWamid, processarWebhookMeta, reivindicarWamid } from '../domain/metaWebhook.js';
+import { soDigitos } from '../lib/util.js';
 
 export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
   const cfg = ctx.cfg;
@@ -41,8 +43,37 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
     return { received: true };
   });
 
-  // (Sem webhook do Chatwoot: a Meta chama direto e o agente IA é acionado
-  //  dentro do processarWebhookMeta — decisão do Jorge, 08/08/2026.)
+  // ===== Chatwoot (TechSAC): fonte de INBOUND de cliente =====
+  // RESTAURADO 09/08: a Meta entrega inbound de cliente SÓ pro app do chat
+  // (o nosso app Wpp Flow recebe apenas statuses — evidência: 641 webhooks/70min,
+  // zero texto). O TechSAC recebe tudo na hora → o message_created dele vira
+  // nossa fonte. Dedup UNIFICADO com o caminho da Meta: ambos disputam o claim
+  // do mesmo wamid (source_id do Chatwoot = wamid) — se a Meta voltar a entregar
+  // inbound pra gente, nunca processa 2x.
+  app.post('/webhook/chatwoot', async (req, reply) => {
+    if ((req.query as any).t !== cfg.webhookTokenChatwoot) return reply.code(403).send({ error: 'forbidden' });
+    const body = (req.body ?? {}) as any;
+    if (String(body.event ?? '') !== 'message_created') return { received: true };
+    if (body.message_type !== 'incoming' && body.message_type !== 0) return { received: true };
+    if (body.private) return { received: true };
+    const inboxId = body.inbox?.id ?? body.conversation?.inbox_id;
+    if (cfg.CHATWOOT_INBOX_ID && String(inboxId) !== String(cfg.CHATWOOT_INBOX_ID)) return { received: true };
+    const conversationId = Number(body.conversation?.id);
+    const texto = String(body.content ?? '').trim();
+    const fone = soDigitos(body.sender?.phone_number ?? body.conversation?.meta?.sender?.phone_number ?? '');
+    if (!conversationId || !texto || !fone) return { received: true };
+    // claim compartilhado com o webhook da Meta (mesma chave waup:wamid:<id>)
+    const wamid = String(body.source_id ?? '').replace(/^waup-wa:/, '');
+    if (wamid && !(await reivindicarWamid(ctx, wamid))) return { received: true };
+    // responde já; o processamento (agente IA) segue async
+    processarMensagemCliente(ctx, conversationId, fone, texto)
+      .then(() => confirmarWamid(ctx, wamid))
+      .catch(async (e) => {
+        await liberarWamid(ctx, wamid);
+        await logEvento(ctx, 'hidrabene', { erro: 'webhook_chatwoot_falhou', detalhe: String((e as Error).message).slice(0, 300) });
+      });
+    return { received: true };
+  });
 
   // ===== Meta: verificação + nfm_reply dos flows (+ status de entrega) =====
   app.get('/webhook/meta', async (req, reply) => {
@@ -61,9 +92,10 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
       return reply.code(403).send({ error: 'assinatura inválida' });
     }
     const body = (req.body ?? {}) as any;
-    // Debug de distribuição (ligar com WAUP_DEBUG_META=1): resume o que chega
-    // sem violar a limpeza — só campo/tipos/remetentes, nunca o conteúdo.
-    if (ctx.cfg.WAUP_DEBUG_META === '1') {
+    // Debug de distribuição (toggle na aba Logs do painel, ou WAUP_DEBUG_META=1):
+    // resume o que chega — só campo/tipos/remetentes, nunca o conteúdo.
+    const cfgd = await getDisparosConfig(ctx).catch(() => null);
+    if (cfgd?.debug_meta || ctx.cfg.WAUP_DEBUG_META === '1') {
       const resumo = (body.entry ?? []).flatMap((e: any) => (e.changes ?? []).map((ch: any) => ({
         field: ch.field,
         msgs: (ch.value?.messages ?? []).map((m: any) => `${m.type}:${String(m.from ?? '').slice(-4)}`),

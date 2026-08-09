@@ -53,6 +53,7 @@ export type DisparosConfig = {
   pausado: boolean;
   amostra_restante: number | null;
   treinamento: string; // estilo de escrita do agente IA (editável no painel)
+  debug_meta: boolean; // loga resumo de todo webhook da Meta (aba Logs)
 };
 
 export type RespostaFlow = {

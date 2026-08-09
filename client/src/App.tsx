@@ -9,6 +9,7 @@ import Oferta from './pages/Oferta';
 import Aprovacoes from './pages/Aprovacoes';
 import Conversas from './pages/Conversas';
 import Relatorios from './pages/Relatorios';
+import Logs from './pages/Logs';
 import Config from './pages/Config';
 
 type Auth = { carregando: boolean; user: string | null };
@@ -39,6 +40,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
           </NavLink>
           <NavLink to="/conversas" className={cls}>Conversas</NavLink>
           <NavLink to="/relatorios" className={cls}>Relatórios</NavLink>
+          <NavLink to="/logs" className={cls}>Logs</NavLink>
           <NavLink to="/config" className={cls}>Config</NavLink>
         </nav>
         <div className="rodape">
@@ -98,6 +100,7 @@ export default function App() {
         <Route path="/aprovacoes" element={<Aprovacoes />} />
         <Route path="/conversas" element={<Conversas />} />
         <Route path="/relatorios" element={<Relatorios />} />
+        <Route path="/logs" element={<Logs />} />
         <Route path="/config" element={<Config />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
