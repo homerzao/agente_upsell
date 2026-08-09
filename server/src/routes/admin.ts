@@ -600,7 +600,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       if (!cfg.APP_DOMAIN) return reply.code(400).send({ error: 'APP_DOMAIN não configurado' });
       const url = `https://${cfg.APP_DOMAIN}/webhook/yampi?t=${cfg.webhookTokenYampi}`;
       try {
-        const r = await ctx.yampi.criarWebhookAtivo(url, events);
+        const r = await ctx.yampi.criarWebhookAtivo(url, events, body.name ?? 'ARGOS UPSELL');
         await auditar(usuario(req), 'webhook_yampi_criado', url, { events });
         return { ok: true, webhook: r };
       } catch (e) {

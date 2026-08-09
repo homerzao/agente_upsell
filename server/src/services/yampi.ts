@@ -56,12 +56,13 @@ export function criarYampi(
   // docs/yampi-api-map.txt do agente_ecom).
   const listarWebhooks = async (): Promise<any[]> => (await req('GET', '/webhooks')).data ?? [];
 
-  // Cria e ATIVA o webhook (nasce active:false; o PUT com a lista de events ativa).
-  async function criarWebhookAtivo(url: string, events: string[]): Promise<any> {
-    const criado = await req('POST', '/webhooks', { url, events });
+  // Cria e ATIVA o webhook. `name` é OBRIGATÓRIO (sem ele: 422) e o webhook
+  // nasce active:false — o PUT com a lista de events ativa.
+  async function criarWebhookAtivo(url: string, events: string[], name = 'ARGOS UPSELL'): Promise<any> {
+    const criado = await req('POST', '/webhooks', { name, url, events });
     const id = criado?.data?.id ?? criado?.id;
     if (id) {
-      await req('PUT', `/webhooks/${id}`, { url, events, active: true });
+      await req('PUT', `/webhooks/${id}`, { name, url, events, active: true });
     }
     return criado;
   }
