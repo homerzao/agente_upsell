@@ -819,6 +819,10 @@ export async function dispararManual(ctx: FunilCtx, store: string, orderId: numb
   const p = normalizarPedidoYampi(o);
   const oferta = await getOferta(ctx);
   if (!oferta) return { ok: false, erro: 'nenhuma oferta ativa' };
+  // 'pago' é estado final: o upsert abaixo o protege, mas sem esta guarda o
+  // template sairia mesmo assim, oferecendo algo que o cliente já comprou.
+  const jaExiste = await getRow(ctx, store, p.orderId);
+  if (jaExiste?.etapa === 'pago') return { ok: false, erro: 'pedido já pagou a oferta' };
   await ctx.db.query(
     `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'open','aguardando_confirmacao',$8,'fila')
