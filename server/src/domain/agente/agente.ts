@@ -125,7 +125,56 @@ async function historicoMensagens(
   }));
 }
 
-// Entrada principal: mensagem do cliente chegou (webhook message_created).
+// Mensagens pendentes que já "descansaram" o tempo do debounce: junta tudo o
+// que o cliente mandou em sequência e responde UMA vez. Sem isso o agente
+// responde cada fragmento ("oi" / "quero mudar" / "o endereço") como se fossem
+// conversas separadas — foi o que gerou 6 correções do mesmo pedido (09/08).
+export async function responderPendentes(ctx: AgenteCtx): Promise<void> {
+  const seg = ctx.cfg.WA_UPSELL_DEBOUNCE_SEG;
+  if (seg <= 0) return;
+  const prontas = await ctx.db.query(
+    `SELECT conversa_id, MAX(criado_em) AS ultima FROM mensagens_ia
+     WHERE direcao='in' AND processada=false
+     GROUP BY conversa_id
+     HAVING MAX(criado_em) < now() - ($1 || ' seconds')::interval
+     LIMIT 20`,
+    [seg],
+  );
+  for (const p of prontas.rows) {
+    // claim: marca como processadas ANTES de responder (duas voltas do sweeper
+    // não podem responder a mesma coisa duas vezes)
+    const msgs = await ctx.db.query(
+      `UPDATE mensagens_ia SET processada=true
+       WHERE conversa_id=$1 AND direcao='in' AND processada=false
+       RETURNING texto, criado_em`,
+      [p.conversa_id],
+    );
+    if (!msgs.rows.length) continue;
+    const texto = msgs.rows
+      .sort((a: any, b: any) => new Date(a.criado_em).getTime() - new Date(b.criado_em).getTime())
+      .map((m: any) => m.texto)
+      .filter(Boolean)
+      .join('\n');
+    const c = await ctx.db.query(
+      `SELECT c.*, w.customer_phone FROM conversas c
+       LEFT JOIN wa_upsell w ON w.id = c.wa_upsell_id WHERE c.id=$1`,
+      [p.conversa_id],
+    );
+    const conversa = c.rows[0];
+    if (!conversa || conversa.status === 'humano' || conversa.liberada_em) continue;
+    await responderComIA(ctx, Number(conversa.chatwoot_conversation_id), conversa.customer_phone ?? '', texto)
+      .catch(async (e) => {
+        await logEvento(ctx, 'hidrabene', {
+          erro: 'responder_pendentes_falhou',
+          conversa_id: p.conversa_id,
+          detalhe: String((e as Error).message).slice(0, 300),
+        });
+      });
+  }
+}
+
+// Entrada principal: mensagem do cliente chegou (webhook). Só REGISTRA — quem
+// responde é o sweeper, depois do debounce (ou aqui mesmo, se debounce=0).
 export async function processarMensagemCliente(
   ctx: AgenteCtx,
   chatwootConversationId: number,
@@ -134,13 +183,31 @@ export async function processarMensagemCliente(
 ): Promise<void> {
   const res = await resolverConversa(ctx, chatwootConversationId, fone);
   if (!res) return; // conversa fora do funil de upsell: não é nossa
-  const { conversa, row } = res;
+  const { conversa } = res;
   if (conversa.liberada_em) return; // conversa devolvida ao SAC normal: não é mais nossa
 
-  await ctx.db.query('INSERT INTO mensagens_ia (conversa_id, direcao, texto) VALUES ($1,$2,$3)', [
-    conversa.id, 'in', texto,
-  ]);
+  const comDebounce = ctx.cfg.WA_UPSELL_DEBOUNCE_SEG > 0 && conversa.status !== 'humano';
+  await ctx.db.query(
+    'INSERT INTO mensagens_ia (conversa_id, direcao, texto, processada) VALUES ($1,$2,$3,$4)',
+    [conversa.id, 'in', texto, !comDebounce],
+  );
   if (conversa.status === 'humano') return; // humano assumiu: bot fica quieto
+  if (comDebounce) return; // o sweeper responde quando o cliente parar de digitar
+  await responderComIA(ctx, chatwootConversationId, fone, texto);
+}
+
+// Gera e envia a resposta (não registra a mensagem do cliente — quem faz isso
+// é processarMensagemCliente/responderPendentes).
+export async function responderComIA(
+  ctx: AgenteCtx,
+  chatwootConversationId: number,
+  fone: string,
+  texto: string,
+): Promise<void> {
+  const res = await resolverConversa(ctx, chatwootConversationId, fone);
+  if (!res) return;
+  const { conversa, row } = res;
+  if (conversa.liberada_em || conversa.status === 'humano') return;
 
   // Gotcha 24: em modo test o agente só conversa com o fone de teste —
   // NUNCA responde cliente real antes da decisão explícita de ir pra live.

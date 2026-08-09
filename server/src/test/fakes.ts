@@ -171,6 +171,9 @@ export function cfgTeste(extra: Record<string, string> = {}): Config {
     PAGARME_SECRET_KEY: 'sk_teste',
     METAWA_TOKEN: 'meta-token',
     METAWA_PHONE_ID: '123',
+    // Sem debounce por padrão nos testes: quem testa resposta quer a resposta
+    // agora. O debounce tem teste próprio (responderPendentes).
+    WA_UPSELL_DEBOUNCE_SEG: '0',
     ...extra,
   } as NodeJS.ProcessEnv);
 }

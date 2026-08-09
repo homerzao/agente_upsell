@@ -55,9 +55,40 @@ async function processarNfmReply(ctx: FunilCtx, msg: any): Promise<void> {
 // daqui — caminho único, sem webhook do Chatwoot (decisão do Jorge 08/08:
 // "chatwoot não precisa de webhook, já que vamos captar da meta direto").
 // A injeção é só espelho pro SAC ver a thread; falha nela não cala o agente.
+// Áudio e imagem viram TEXTO antes de chegar no agente (Whisper e visão).
+// Sem isso o cliente mandava um áudio e a IA nem sabia que existiu.
+async function midiaParaTexto(ctx: AgenteCtx, msg: any): Promise<string> {
+  const tipo = String(msg.type ?? '');
+  const media = msg.audio ?? msg.voice ?? msg.image ?? msg.document ?? null;
+  if (!media?.id || !ctx.openai) return '';
+  try {
+    const { bytes, mime } = await ctx.meta.baixarMidia(String(media.id));
+    if (tipo === 'audio' || tipo === 'voice') {
+      const texto = await ctx.openai.transcrever(bytes, mime);
+      return texto ? `[áudio do cliente, transcrito] ${texto}` : '';
+    }
+    if (tipo === 'image') {
+      const desc = await ctx.openai.descreverImagem(bytes, mime, String(msg.image?.caption ?? ''));
+      const legenda = String(msg.image?.caption ?? '').trim();
+      return desc ? `[imagem enviada pelo cliente] ${desc}${legenda ? `\n(legenda: ${legenda})` : ''}` : '';
+    }
+    return '';
+  } catch (e) {
+    await logEvento(ctx, 'hidrabene', {
+      erro: 'midia_falhou',
+      tipo,
+      detalhe: String((e as Error).message).slice(0, 200),
+    });
+    // O agente precisa saber que ALGO chegou, mesmo sem conseguir ler
+    return tipo === 'audio' || tipo === 'voice'
+      ? '[o cliente mandou um áudio que não consegui ouvir — peça pra ele escrever]'
+      : '[o cliente mandou uma imagem que não consegui abrir — pergunte o que é]';
+  }
+}
+
 async function processarTextoInbound(ctx: AgenteCtx, msg: any): Promise<void> {
   const fone = String(msg.from ?? '');
-  const texto = String(msg.text?.body ?? '').trim();
+  const texto = String(msg.text?.body ?? '').trim() || (await midiaParaTexto(ctx, msg));
   if (!fone || !texto) return;
   const row = await buscarRowContextoAtivo(ctx, fone);
   if (!row) return; // fora de contexto: SAC comum, descarta sem gravar
@@ -109,10 +140,11 @@ export async function processarWebhookMeta(ctx: AgenteCtx, body: any): Promise<v
         try {
           if (msg.interactive?.nfm_reply) {
             await processarNfmReply(ctx, msg);
-          } else if (msg.type === 'text' || msg.text?.body) {
+          } else if (['text', 'audio', 'voice', 'image'].includes(String(msg.type)) || msg.text?.body) {
+            // áudio e imagem entram aqui e viram texto (Whisper / visão)
             await processarTextoInbound(ctx, msg);
           }
-          // demais tipos (mídia, reação, etc.): descarte silencioso
+          // demais tipos (sticker, reação, localização): descarte silencioso
           await confirmarWamid(ctx, wamid);
         } catch (e) {
           // devolve o claim: a reentrega da Meta reprocessa em vez de perder a msg

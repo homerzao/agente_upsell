@@ -5,6 +5,7 @@
 //   processamento inclui o agente IA, que leva segundos)
 // - a cada 6h: retenção de wa_events (30 dias; eventos de pagamento ficam)
 import type { AgenteCtx } from './domain/agente/agente.js';
+import { responderPendentes } from './domain/agente/agente.js';
 import { FILA_META, logEvento, processarFilaDisparo, sweep } from './domain/funil.js';
 import { processarWebhookMeta } from './domain/metaWebhook.js';
 
@@ -32,6 +33,20 @@ export function startSweeper(ctx: AgenteCtx): () => void {
       /* próxima volta */
     } finally {
       rodandoFila = false;
+    }
+  }, 5_000);
+
+  // Debounce das mensagens do cliente: responde quando ele para de digitar
+  let rodandoPendentes = false;
+  const t5 = setInterval(async () => {
+    if (rodandoPendentes) return;
+    rodandoPendentes = true;
+    try {
+      await responderPendentes(ctx);
+    } catch {
+      /* próxima volta */
+    } finally {
+      rodandoPendentes = false;
     }
   }, 5_000);
 

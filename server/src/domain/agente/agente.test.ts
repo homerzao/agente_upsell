@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { montarSystemPrompt } from './contexto.js';
 import { TOOL_DEFS } from './tools.js';
-import { pedeHumano, processarMensagemCliente, resolverConversa } from './agente.js';
+import { pedeHumano, processarMensagemCliente, responderPendentes, resolverConversa } from './agente.js';
 import { FakeDb, configDisparoRow, ctxTeste, rowBase, ofertaBase } from '../../test/fakes.js';
 import { COPIES_DEFAULT } from '../copies.js';
 import type { WaUpsellRow } from '../tipos.js';
@@ -314,5 +314,41 @@ describe('silêncio do agente', () => {
     await processarMensagemCliente(ctx, 555, '5511987654321', 'obrigada');
     expect(cw.enviadas[0].content).toBe('Prontinho!');
     expect(cw.enviadas[0].content).not.toContain('SEM_RESPOSTA');
+  });
+});
+
+// Cliente escreve picado ("oi" / "quero mudar" / "o endereço"): responder cada
+// fragmento virou pingue-pongue e 6 correções do mesmo pedido (09/08).
+describe('debounce das mensagens do cliente', () => {
+  it('com debounce ligado, o webhook só registra (não responde na hora)', async () => {
+    const { db, mensagens } = dbAgente();
+    const cw = chatwootFake();
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: cw, openai: null };
+    ctx.cfg = { ...ctx.cfg, WA_UPSELL_DEBOUNCE_SEG: 20, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'oi');
+    expect(cw.enviadas.length).toBe(0); // nada sai ainda
+    // gravou como NÃO processada, pro sweeper pegar depois
+    expect(mensagens.some((m: any) => m.includes(false))).toBe(true);
+  });
+
+  it('responderPendentes junta as mensagens em uma só e marca como processadas', async () => {
+    const db = new FakeDb();
+    let sqlUpdate = '';
+    db.on(/SELECT conversa_id, MAX\(criado_em\)/, () => [{ conversa_id: 9, ultima: new Date().toISOString() }]);
+    db.on(/UPDATE mensagens_ia SET processada=true/, (_v, text) => {
+      sqlUpdate = text;
+      return [
+        { texto: 'oi', criado_em: '2026-08-09T20:00:00Z' },
+        { texto: 'quero mudar o endereço', criado_em: '2026-08-09T20:00:05Z' },
+      ];
+    });
+    db.on(/SELECT c\.\*, w\.customer_phone FROM conversas c/, () => [
+      { id: 9, chatwoot_conversation_id: 555, status: 'bot', customer_phone: '5511987654321', liberada_em: null },
+    ]);
+    db.on(/SELECT \* FROM conversas WHERE chatwoot_conversation_id/, () => []);
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: chatwootFake(), openai: null };
+    ctx.cfg = { ...ctx.cfg, WA_UPSELL_DEBOUNCE_SEG: 20 };
+    await responderPendentes(ctx);
+    expect(sqlUpdate).toContain('processada=false'); // claim antes de responder
   });
 });

@@ -123,6 +123,26 @@ export async function registrarCorrecao(
     puts.push({ recurso: 'order_address', id: alvo.id, order_id: orderId, body: montarBodyEspelhado(alvo, mudancas) });
   }
 
+  // UMA correção pendente por pedido. O agente reconfirma com o cliente e
+  // chamava a tool de novo a cada "sim" — no piloto real isso virou 6 correções
+  // do MESMO pedido na fila de aprovação (09/08). Se já existe uma aguardando,
+  // ATUALIZA (o pedido mais recente do cliente vence) em vez de empilhar.
+  const pendente = await ctx.db.query(
+    `SELECT id, campos_antes FROM correcoes
+     WHERE wa_upsell_id=$1 AND status='aguardando_aprovacao'
+     ORDER BY id DESC LIMIT 1`,
+    [row.id],
+  );
+  if (pendente.rows.length) {
+    const id = pendente.rows[0].id;
+    // 'antes' preservado do primeiro registro: é o estado original na Yampi
+    await ctx.db.query(
+      `UPDATE correcoes SET campos_depois=$2, put_yampi=$3, criado_em=now() WHERE id=$1`,
+      [id, { ...(pendente.rows[0].campos_antes ?? {}), ...depois }, { puts }],
+    );
+    await waupSet(ctx, store, orderId, { status: 'open', etapa: 'corrigir_sac' });
+    return { ok: true, correcaoId: id };
+  }
   const ins = await ctx.db.query(
     `INSERT INTO correcoes (wa_upsell_id, campos_antes, campos_depois, put_yampi, status)
      VALUES ($1,$2,$3,$4,'aguardando_aprovacao') RETURNING id`,

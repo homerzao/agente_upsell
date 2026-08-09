@@ -41,6 +41,9 @@ const schema = z.object({
 
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_MODEL: z.string().default('gpt-5.6-luna'),
+  // Áudio do cliente (Whisper) e imagem (visão) viram texto pro agente
+  OPENAI_MODELO_AUDIO: z.string().default('whisper-1'),
+  OPENAI_MODELO_VISAO: z.string().default('gpt-5.6-luna'),
   OPENAI_PRECO_INPUT_1M: z.coerce.number().default(0),
   OPENAI_PRECO_OUTPUT_1M: z.coerce.number().default(0),
 
@@ -74,6 +77,9 @@ const schema = z.object({
   // Idade máxima do pedido (horas) pra entrar no funil. Protege contra pedido
   // antigo sendo faturado agora parecer "acabou de pagar" (ver decidirDisparo).
   WA_UPSELL_IDADE_MAX_HORAS: z.coerce.number().default(24),
+  // Espera X segundos sem mensagem nova antes de responder, pra juntar as
+  // mensagens picadas do cliente numa resposta só (0 = responde na hora).
+  WA_UPSELL_DEBOUNCE_SEG: z.coerce.number().default(20),
   // Lembrete X minutos APÓS o envio do PIX (0 = desligado). Calibrar pelo prazo
   // ANUNCIADO: com 10 anunciado, 7 aqui = "vence em 3 minutos".
   WA_UPSELL_LEMBRETE_PIX_APOS_MIN: z.coerce.number().default(7),

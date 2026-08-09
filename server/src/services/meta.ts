@@ -38,5 +38,18 @@ export function criarMeta(
     }
   }
 
-  return { waSendRaw, enviarTexto, validarAssinatura };
+  // Baixa mídia do WhatsApp: o webhook traz só o media_id — é preciso pedir a
+  // URL e depois baixar com o mesmo token (a URL não é pública).
+  async function baixarMidia(mediaId: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
+    const meta = await fetchFn(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${cfg.METAWA_TOKEN}` },
+    });
+    const j: any = await meta.json().catch(() => ({}));
+    if (!meta.ok || !j.url) throw new Error(`media ${meta.status}: ${JSON.stringify(j).slice(0, 160)}`);
+    const bin = await fetchFn(j.url, { headers: { Authorization: `Bearer ${cfg.METAWA_TOKEN}` } });
+    if (!bin.ok) throw new Error(`download media ${bin.status}`);
+    return { bytes: await bin.arrayBuffer(), mime: j.mime_type ?? 'application/octet-stream' };
+  }
+
+  return { waSendRaw, enviarTexto, validarAssinatura, baixarMidia };
 }
