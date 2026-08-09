@@ -38,7 +38,14 @@ export type DecisaoDisparo =
   | { elegivel: true }
   | {
       elegivel: false;
-      motivo: 'pausado' | 'cpf_fora_do_filtro' | 'amostra_esgotada' | 'sem_oferta_ativa' | 'metodo_fora_do_filtro';
+      motivo:
+        | 'pausado'
+        | 'cpf_fora_do_filtro'
+        | 'amostra_esgotada'
+        | 'sem_oferta_ativa'
+        | 'metodo_fora_do_filtro'
+        | 'status_nao_e_paid'
+        | 'pedido_antigo';
     };
 
 // Elegibilidade do disparo controlado. Pedido NÃO elegível AINDA é registrado
@@ -48,9 +55,23 @@ export function decidirDisparo(
   cpf: string | null | undefined,
   temOfertaAtiva: boolean,
   metodoPagamento?: string | null,
+  pedido?: { status?: string | null; idadeHoras?: number | null; idadeMaxHoras?: number },
 ): DecisaoDisparo {
   if (cfg.pausado) return { elegivel: false, motivo: 'pausado' };
   if (!temOfertaAtiva) return { elegivel: false, motivo: 'sem_oferta_ativa' };
+  // A oferta é para quem ACABOU de pagar. Duas travas contra disparo em pedido
+  // velho (achado real 09/08: 79 pedidos `invoiced` — pedidos de dias atrás
+  // sendo faturados — entraram como se tivessem acabado de ser pagos, porque o
+  // sistema nunca os tinha visto antes e leu isso como transição pra pago):
+  if (pedido) {
+    if (pedido.status && pedido.status !== 'paid') {
+      return { elegivel: false, motivo: 'status_nao_e_paid' }; // invoiced, on_carriage, delivered…
+    }
+    const max = pedido.idadeMaxHoras ?? 24;
+    if (pedido.idadeHoras !== null && pedido.idadeHoras !== undefined && pedido.idadeHoras > max) {
+      return { elegivel: false, motivo: 'pedido_antigo' };
+    }
+  }
   // Método de pagamento (alias da Yampi: pix, mastercard, visa, elo, amex, billet…).
   // Padrão só PIX: quem pagou PIX está com o celular na mão e paga outro PIX.
   // Lista vazia = aceita todos. Pedido SEM método identificado não entra quando

@@ -66,6 +66,9 @@ const schema = z.object({
   // Conversa de funil FECHADO sem interação há X min: destrava no TechSAC e
   // devolve pro fluxo normal do SAC (pedido do Jorge, 08/08)
   WA_UPSELL_LIBERA_CONVERSA_MIN: z.coerce.number().default(60),
+  // Idade máxima do pedido (horas) pra entrar no funil. Protege contra pedido
+  // antigo sendo faturado agora parecer "acabou de pagar" (ver decidirDisparo).
+  WA_UPSELL_IDADE_MAX_HORAS: z.coerce.number().default(24),
   // '1' = loga resumo (campo/tipos/remetentes) de TODO webhook da Meta que
   // chega — diagnóstico de distribuição entre apps da WABA. Desligar depois.
   WAUP_DEBUG_META: z.string().default('0'),

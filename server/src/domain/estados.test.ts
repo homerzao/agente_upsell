@@ -98,6 +98,34 @@ describe('filtro de método de pagamento', () => {
   });
 });
 
+// Pedido ANTIGO sendo faturado agora não pode virar disparo (achado 09/08: 79
+// pedidos `invoiced` de dias atrás entraram como se tivessem acabado de pagar).
+describe('pedido precisa ser pagamento NOVO', () => {
+  it('status diferente de paid não entra', () => {
+    for (const s of ['invoiced', 'on_carriage', 'delivered', 'ready_for_shipping']) {
+      expect(decidirDisparo(cfgBase, '04686204194', true, 'pix', { status: s, idadeHoras: 0.1 })).toEqual({
+        elegivel: false,
+        motivo: 'status_nao_e_paid',
+      });
+    }
+  });
+  it('paid recente entra', () => {
+    expect(decidirDisparo(cfgBase, '04686204194', true, 'pix', { status: 'paid', idadeHoras: 0.2 })).toEqual({
+      elegivel: true,
+    });
+  });
+  it('paid velho (fora da janela de idade) não entra', () => {
+    expect(
+      decidirDisparo(cfgBase, '04686204194', true, 'pix', { status: 'paid', idadeHoras: 72, idadeMaxHoras: 24 }),
+    ).toEqual({ elegivel: false, motivo: 'pedido_antigo' });
+  });
+  it('sem informação de idade, não bloqueia por idade', () => {
+    expect(decidirDisparo(cfgBase, '04686204194', true, 'pix', { status: 'paid', idadeHoras: null })).toEqual({
+      elegivel: true,
+    });
+  });
+});
+
 describe('decidirDisparo (disparo controlado)', () => {
   it('kill switch pausa tudo', () => {
     expect(decidirDisparo({ ...cfgBase, pausado: true }, '04686204194', true)).toEqual({

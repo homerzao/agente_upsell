@@ -166,7 +166,14 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   const p = normalizarPedidoYampi(o);
   const cfgd = await getDisparosConfig(ctx);
   const oferta = await getOferta(ctx);
-  const decisao = decidirDisparo(cfgd, p.cpf, Boolean(oferta), p.metodo);
+  // Idade do pedido pelo created_at (a Yampi não manda paid_at no webhook)
+  const criadoEm = carbon(o.created_at);
+  const idadeHoras = criadoEm ? (Date.now() - new Date(criadoEm).getTime()) / 3_600_000 : null;
+  const decisao = decidirDisparo(cfgd, p.cpf, Boolean(oferta), p.metodo, {
+    status: p.status,
+    idadeHoras,
+    idadeMaxHoras: ctx.cfg.WA_UPSELL_IDADE_MAX_HORAS,
+  });
   // Registra TODO pedido pago (mesmo fora do filtro) — o faturamento consulta
   // qualquer pedido e sempre recebe resposta (closed/fora_do_fluxo).
   const ins = await ctx.db.query(
