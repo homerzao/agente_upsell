@@ -3,7 +3,7 @@
 //        -> operador aprova no painel -> aplica na Yampi -> verifica lendo de volta
 //        -> avisa o cliente -> fecha. NUNCA aplicar update na Yampi sem aprovação.
 // GOTCHA 13: PUT Yampi = corpo COMPLETO espelhado — campos omitidos são ZERADOS.
-import { primeiroNome, renderCopy, soDigitos } from '../lib/util.js';
+import { foneBr, primeiroNome, renderCopy, soDigitos } from '../lib/util.js';
 import { destinoMensagem } from './estados.js';
 import { getDisparosConfig, getOferta, getRow, logEvento, waupSet, type FunilCtx } from './funil.js';
 import { normalizarPedidoYampi } from './funil.js';
@@ -211,7 +211,7 @@ export async function aprovarCorrecao(
   });
   if (msg) {
     await ctx.meta
-      .enviarTexto(destinoMensagem(cfgd.modo, soDigitos(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
+      .enviarTexto(destinoMensagem(cfgd.modo, foneBr(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
       .catch(async (e) => {
         await logEvento(ctx, row.store, { erro: 'msg_correcao_aplicada_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
       });
@@ -244,7 +244,7 @@ export async function rejeitarCorrecao(
   if (msg) {
     // gotcha 7: falha de envio NUNCA é silenciosa
     await ctx.meta
-      .enviarTexto(destinoMensagem(cfgd.modo, soDigitos(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
+      .enviarTexto(destinoMensagem(cfgd.modo, foneBr(row.customer_phone), ctx.cfg.WA_FONE_TESTE), msg)
       .catch(async (e) => {
         await logEvento(ctx, row.store, { erro: 'msg_correcao_rejeitada_falhou', order_id: row.order_id, detalhe: String((e as Error).message).slice(0, 300) });
       });

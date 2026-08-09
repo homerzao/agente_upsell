@@ -2,7 +2,7 @@
 // Toda mensagem enviada é logada em mensagens_ia com o prompt/contexto usado.
 import crypto from 'node:crypto';
 import type { OpenAIService, ChatMessage } from '../../services/openai.js';
-import { soDigitos, valorBr } from '../../lib/util.js';
+import { foneBr, mesmoFone, soDigitos, valorBr } from '../../lib/util.js';
 import { getDisparosConfig, getOferta, getRow, logEvento, normalizarPedidoYampi, type FunilCtx } from '../funil.js';
 import { encaminharHumano } from '../handoff.js';
 import { montarSystemPrompt, type ContextoAgente } from './contexto.js';
@@ -35,10 +35,13 @@ export async function resolverConversa(
   // entraram no funil — fora_do_fluxo é SAC comum, não é conversa do bot
   // (gotcha 23 registra TODO pedido pago; sem este filtro o bot sequestraria
   // qualquer cliente recente que mandasse mensagem na inbox).
-  const dig = soDigitos(fone);
+  // DDD + últimos 8 dígitos: o wa_id da Meta vem sem o nono dígito (ver mesmoFone)
+  const dig = foneBr(fone);
   if (!dig) return null;
   const w = await ctx.db.query(
-    `SELECT * FROM wa_upsell WHERE customer_phone=$1 AND store='hidrabene'
+    `SELECT * FROM wa_upsell WHERE store='hidrabene'
+       AND right(customer_phone, 8) = right($1, 8)
+       AND substring(customer_phone from 3 for 2) = substring($1 from 3 for 2)
        AND etapa <> 'fora_do_fluxo' AND disparo_status IS NOT NULL
      ORDER BY criado_em DESC LIMIT 1`,
     [dig],
@@ -125,7 +128,7 @@ export async function processarMensagemCliente(
   // Gotcha 24: em modo test o agente só conversa com o fone de teste —
   // NUNCA responde cliente real antes da decisão explícita de ir pra live.
   const cfgd = await getDisparosConfig(ctx);
-  if (cfgd.modo === 'test' && soDigitos(fone) !== soDigitos(ctx.cfg.WA_FONE_TESTE)) return;
+  if (cfgd.modo === 'test' && !mesmoFone(fone, ctx.cfg.WA_FONE_TESTE)) return;
 
   const responder = async (msg: string) => {
     if (!ctx.chatwoot) return;

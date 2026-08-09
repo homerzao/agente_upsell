@@ -11,6 +11,15 @@ export const foneBr = (s: unknown): string => {
   return d; // já com DDI (12-13 dígitos) ou vazio/estrangeiro: mantém
 };
 
+// Mesmo assinante? Compara DDD + ÚLTIMOS 8 dígitos. O wa_id da Meta vem SEM o
+// nono dígito (5591 92148793) e a Yampi grava COM (5591 992148793): comparar a
+// string inteira dá "números diferentes" pro mesmo cliente.
+export const mesmoFone = (a: unknown, b: unknown): boolean => {
+  const x = foneBr(a), y = foneBr(b);
+  if (x.length < 10 || y.length < 10) return false;
+  return x.slice(-8) === y.slice(-8) && x.slice(2, 4) === y.slice(2, 4);
+};
+
 export const primeiroNome = (nome: unknown): string =>
   (String(nome ?? '').trim().split(/\s+/)[0] || 'cliente');
 

@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { carbon, mascararCpf, num, primeiroNome, renderCopy, soDigitos, valorBr } from './util.js';
+import { carbon, foneBr, mascararCpf, mesmoFone, num, primeiroNome, renderCopy, soDigitos, valorBr } from './util.js';
+
+// O WhatsApp manda o mesmo assinante ora COM ora SEM o nono dígito (Jorge, 09/08:
+// "as vezes vem com 9 as vezes sem"). Todo match de telefone precisa aguentar isso.
+describe('mesmoFone (nono dígito)', () => {
+  it('casa com e sem o nono dígito, nos dois sentidos', () => {
+    expect(mesmoFone('559192148793', '5591992148793')).toBe(true); // Meta sem 9 x Yampi com 9
+    expect(mesmoFone('5591992148793', '559192148793')).toBe(true); // invertido
+    expect(mesmoFone('91992148793', '559192148793')).toBe(true); // nacional x com DDI
+    expect(mesmoFone('+55 (91) 99214-8793', '559192148793')).toBe(true); // formatado
+  });
+  it('não casa DDD diferente nem número diferente', () => {
+    expect(mesmoFone('5511992148793', '5591992148793')).toBe(false); // mesmo final, DDD outro
+    expect(mesmoFone('5591992148794', '5591992148793')).toBe(false);
+    expect(mesmoFone('', '5591992148793')).toBe(false);
+  });
+  it('foneBr põe DDI 55 só no formato nacional', () => {
+    expect(foneBr('91992148793')).toBe('5591992148793');
+    expect(foneBr('5591992148793')).toBe('5591992148793');
+    expect(foneBr('559192148793')).toBe('559192148793');
+  });
+});
 
 describe('soDigitos', () => {
   it('remove tudo que não é dígito', () => {

@@ -226,10 +226,12 @@ describe('resolverConversa', () => {
   it('fallback: liga a conversa à row mais recente do fone SÓ se entrou no funil', async () => {
     const db = new FakeDb();
     db.on(/SELECT \* FROM conversas WHERE chatwoot_conversation_id/, () => []);
-    db.on(/SELECT \* FROM wa_upsell WHERE customer_phone/, (_v, text) => {
+    db.on(/SELECT \* FROM wa_upsell WHERE store='hidrabene'/, (_v, text) => {
       // fora_do_fluxo é SAC comum — o bot não sequestra a conversa
       expect(text).toContain("etapa <> 'fora_do_fluxo'");
       expect(text).toContain('disparo_status IS NOT NULL');
+      // match tolerante ao nono dígito (o wa_id da Meta vem sem ele)
+      expect(text).toContain('right(customer_phone, 8)');
       return [rowBase()];
     });
     db.on(/INSERT INTO conversas/, () => [{ id: 42, wa_upsell_id: 1, chatwoot_conversation_id: 1, status: 'bot' }]);
