@@ -64,10 +64,38 @@ export function criarChatwoot(
 
   // Resposta do agente volta pelo Chatwoot (que entrega no WhatsApp).
   // Destrava a conversa no TechSAC (lock do fluxo deles): resposta do cliente
-  // volta a cair na sessão normal do SAC. Rota custom do dev do TechSAC —
-  // PATCH {locked:false}; usa o conversation_id (o dev expôs no send_template).
-  const destravarConversa = (conversationId: number) =>
-    req('PATCH', `/conversations/${conversationId}`, { locked: false });
+  // volta a cair na sessão normal do SAC. ATENÇÃO: aqui vai o conversation_id
+  // INTERNO (o display_id devolve 404) — ele só vem no response do
+  // send_template v2; a API v1 não expõe. Por isso guardamos no disparo.
+  const destravarConversa = (conversationIdInterno: number) =>
+    req('PATCH', `/conversations/${conversationIdInterno}`, { locked: false });
+
+  // Disparo de template pela rota do TechSAC: cria a conversa já travada E
+  // devolve os DOIS ids (interno + display). É o único caminho que entrega o
+  // id interno — sem ele não dá pra destravar depois.
+  async function enviarTemplateTechSAC(payload: Record<string, unknown>): Promise<{
+    conversationIdInterno: number | null;
+    displayId: number | null;
+    bruto: any;
+  }> {
+    const r = await fetchFn(`${cfg.CHATWOOT_URL.replace(/\/$/, '')}/api/v2/whatsapp/send_template`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`techsac send_template ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
+    // O response mudou de forma durante o desenvolvimento do dev: procura em
+    // todos os lugares plausíveis em vez de fixar um caminho.
+    const p = (j as any).payload ?? j;
+    const interno = p?.conversation_id ?? p?.conversation?.id ?? p?.data?.conversation_id ?? null;
+    const display = p?.display_id ?? p?.conversation?.display_id ?? p?.data?.display_id ?? null;
+    return {
+      conversationIdInterno: interno != null ? Number(interno) : null,
+      displayId: display != null ? Number(display) : null,
+      bruto: j,
+    };
+  }
 
   const enviarMensagem = (conversationId: number, content: string, privada = false) =>
     req('POST', `/conversations/${conversationId}/messages`, {
@@ -104,6 +132,7 @@ export function criarChatwoot(
     criarContato,
     buscarOuCriarConversa,
     destravarConversa,
+    enviarTemplateTechSAC,
     enviarMensagem,
     listarMensagens,
     atribuirAgente,

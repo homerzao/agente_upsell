@@ -48,6 +48,10 @@ const schema = z.object({
   // Página de acompanhamento do pedido: base + NÚMERO do pedido Yampi.
   // Funciona desde o pagamento; o código de rastreio aparece lá quando despacha.
   RASTREIO_URL_BASE: z.string().default('https://rastreio.hidrabene.com.br/status/'),
+  // '1' = dispara o template pela rota do TechSAC (cria a conversa travada e
+  // devolve o conversation_id INTERNO, necessário pra destravar depois).
+  // '0' = envia direto pela Meta (sem id interno; destravar fica indisponível).
+  DISPARO_VIA_TECHSAC: z.string().default('1'),
   WA_UPSELL_TEMPLATE_CONFIRMA: z.string().default('confirma_pedido_up'),
   // v6 (data_exchange): o "Confirmar Pedido" chama o data channel /flow/upsell
   WA_UPSELL_FLOW_ID: z.string().default('3548925675262517'),

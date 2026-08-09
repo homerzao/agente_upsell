@@ -26,8 +26,18 @@ export async function encaminharHumano(
       await ctx.chatwoot.enviarMensagem(convId, `🤖➡️👤 Handoff (${motivo}).\n\nResumo: ${resumo}`, true);
     }
     // Destrava no TechSAC: a resposta do cliente volta a cair na sessão normal
-    // do SAC (rota do dev). Se falhar, loga — o humano ainda acha pela label.
-    await ctx.chatwoot.destravarConversa(convId).catch(async (e) => {
+    // do SAC. Precisa do conversation_id INTERNO (display_id dá 404) — ele vem
+    // do disparo via send_template. Sem ele, não adianta tentar.
+    const interno = (
+      await ctx.db.query('SELECT chatwoot_conv_interno AS i FROM conversas WHERE id=$1', [conversa.id])
+    ).rows[0]?.i;
+    if (!interno) {
+      await logEvento(ctx, 'hidrabene', {
+        erro: 'sem_conversation_id_interno',
+        conversa_id: conversa.id,
+        detalhe: 'conversa criada sem passar pelo send_template do TechSAC — destravar indisponível',
+      });
+    } else await ctx.chatwoot.destravarConversa(Number(interno)).catch(async (e) => {
       await logEvento(ctx, 'hidrabene', {
         erro: 'destravar_conversa_falhou',
         conversa_id: conversa.id,

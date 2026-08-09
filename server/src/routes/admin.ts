@@ -371,6 +371,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
         vals.push(q.status);
         where.push(`c.status = $${vals.length}`);
       }
+      // Arquivadas somem da lista padrão; ?arquivadas=1 mostra só elas
+      where.push(q.arquivadas === '1' ? 'c.arquivada_em IS NOT NULL' : 'c.arquivada_em IS NULL');
       const busca = String(q.q ?? '').trim();
       if (busca) {
         // nome, fone, order_id ou número do pedido — um campo só de busca no painel
@@ -439,6 +441,21 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       );
       await auditar(usuario(req), 'conversa_assumida', `conversa:${id}`, null);
       return { ok: true };
+    });
+
+    // Arquivar / desarquivar (some da lista padrão; ?arquivadas=1 pra ler depois)
+    adm.post('/api/conversas/:id/arquivar', async (req, reply) => {
+      const id = idParam(req, reply);
+      if (id === null) return reply;
+      const desarquivar = Boolean((req.body as any)?.desarquivar);
+      const r = await db.query(
+        `UPDATE conversas SET arquivada_em=${desarquivar ? 'NULL' : 'now()'}, atualizado_em=now()
+         WHERE id=$1 RETURNING id`,
+        [id],
+      );
+      if (!r.rows.length) return reply.code(404).send({ erro: 'conversa não encontrada' });
+      await auditar(usuario(req), desarquivar ? 'conversa_desarquivada' : 'conversa_arquivada', `conversa:${id}`, null);
+      return { ok: true, arquivada: !desarquivar };
     });
 
     // Devolver ao bot (volta a responder sozinho)

@@ -10,7 +10,7 @@ import type { ChatwootService } from '../services/chatwoot.js';
 import { LABEL_UPSELL } from '../services/chatwoot.js';
 import { carbon, foneBr, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
 import { decidirDisparo, destinoMensagem, ehTransicaoParaPago, interpretarRespostaFlow } from './estados.js';
-import { montarTemplateConfirma } from './template.js';
+import { montarTemplateConfirma, montarTemplateTechSAC } from './template.js';
 import type { DisparosConfig, Oferta, RespostaFlow, WaUpsellRow } from './tipos.js';
 
 export const FILA_DISPARO = 'waup:fila_disparo';
@@ -269,12 +269,57 @@ export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise
         endereco: p.endereco || '-',
       },
     });
-    const r = await ctx.meta.waSendRaw(payload);
+    // Caminho preferido: rota do TechSAC (cria a conversa TRAVADA e devolve o
+    // conversation_id INTERNO, único jeito de destravar depois). Se falhar,
+    // cai pro envio direto na Meta — disparo não pode parar por causa disso.
+    let msgId: string | null = null;
+    let internoTechSAC: number | null = null;
+    let displayTechSAC: number | null = null;
+    if (ctx.chatwoot && ctx.cfg.DISPARO_VIA_TECHSAC === '1') {
+      try {
+        const t = await ctx.chatwoot.enviarTemplateTechSAC(
+          montarTemplateTechSAC({
+            to: destino(ctx, cfgd.modo, row.customer_phone),
+            contactName: row.customer_name ?? nome,
+            templateNome: copies.template_nome || ctx.cfg.WA_UPSELL_TEMPLATE_CONFIRMA,
+            flowToken: `${row.store}:${row.order_id}`,
+            headerUrl: copies.header_url || ctx.cfg.WA_UPSELL_HEADER_URL || undefined,
+            headerMediaId: copies.header_media_id || ctx.cfg.WA_UPSELL_HEADER_MEDIA_ID || undefined,
+            copies,
+            dados: {
+              nome,
+              nome_completo: row.customer_name ?? nome,
+              numero: row.order_number ?? '',
+              email: row.customer_email ?? p.email ?? '-',
+              endereco: p.endereco || '-',
+            },
+          }),
+        );
+        internoTechSAC = t.conversationIdInterno;
+        displayTechSAC = t.displayId;
+        await logEvento(ctx, row.store, {
+          evento: 'disparo_techsac',
+          order_id: row.order_id,
+          conversation_id_interno: internoTechSAC,
+          display_id: displayTechSAC,
+        });
+      } catch (e) {
+        await logEvento(ctx, row.store, {
+          erro: 'disparo_techsac_falhou_usando_meta',
+          order_id: row.order_id,
+          detalhe: String((e as Error).message).slice(0, 300),
+        });
+      }
+    }
+    if (internoTechSAC === null && displayTechSAC === null) {
+      const r = await ctx.meta.waSendRaw(payload);
+      msgId = r.messages?.[0]?.id ?? null;
+    }
     await waupSet(ctx, row.store, row.order_id, {
-      template_msg_id: r.messages?.[0]?.id ?? null,
+      template_msg_id: msgId,
       disparo_status: 'enviado',
     });
-    await criarConversaChatwoot(ctx, row, cfgd.modo).then(
+    await criarConversaChatwoot(ctx, row, cfgd.modo, { interno: internoTechSAC, display: displayTechSAC }).then(
       () => espelhoNota(ctx, row.store, row.order_id,
         `📨 Template de confirmação do pedido #${row.order_number ?? row.order_id} enviado pro cliente no WhatsApp (funil Ticket Dourado). Notas 🤖 abaixo = mensagens automáticas enviadas ao cliente.`),
       async (e) => {
@@ -288,23 +333,38 @@ export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise
 }
 
 // Localiza/cria a conversa do contato no Chatwoot e atribui ao agente IA.
-export async function criarConversaChatwoot(ctx: FunilCtx, row: WaUpsellRow, modo: 'test' | 'live'): Promise<number | null> {
+export async function criarConversaChatwoot(
+  ctx: FunilCtx,
+  row: WaUpsellRow,
+  modo: 'test' | 'live',
+  ids?: { interno: number | null; display: number | null },
+): Promise<number | null> {
   if (!ctx.chatwoot) return null;
   const fone = destino(ctx, modo, row.customer_phone);
-  let contato = await ctx.chatwoot.buscarContatoPorFone(fone);
-  if (!contato) contato = await ctx.chatwoot.criarContato(row.customer_name ?? 'Cliente Hidrabene', fone);
-  const conv = await ctx.chatwoot.buscarOuCriarConversa(contato.id);
-  const convId = conv.id ?? conv.payload?.id;
+  let contatoId: number | null = null;
+  // Disparo pelo TechSAC já criou a conversa: usa o display que ele devolveu
+  // (evita criar uma segunda conversa pro mesmo contato).
+  let convId: number | null = ids?.display ?? null;
+  if (!convId) {
+    let contato = await ctx.chatwoot.buscarContatoPorFone(fone);
+    if (!contato) contato = await ctx.chatwoot.criarContato(row.customer_name ?? 'Cliente Hidrabene', fone);
+    contatoId = contato.id;
+    const conv = await ctx.chatwoot.buscarOuCriarConversa(contato.id);
+    convId = conv.id ?? conv.payload?.id ?? null;
+  }
   if (!convId) throw new Error('conversa chatwoot sem id');
   await ctx.chatwoot.setLabels(convId, [LABEL_UPSELL]).catch(() => {});
   if (ctx.cfg.CHATWOOT_AGENT_ID) {
     await ctx.chatwoot.atribuirAgente(convId, Number(ctx.cfg.CHATWOOT_AGENT_ID)).catch(() => {});
   }
   await ctx.db.query(
-    `INSERT INTO conversas (wa_upsell_id, chatwoot_conversation_id, chatwoot_contact_id, status)
-     VALUES ($1,$2,$3,'bot')
-     ON CONFLICT (chatwoot_conversation_id) DO UPDATE SET wa_upsell_id=EXCLUDED.wa_upsell_id, atualizado_em=now()`,
-    [row.id, convId, contato.id],
+    `INSERT INTO conversas (wa_upsell_id, chatwoot_conversation_id, chatwoot_contact_id, chatwoot_conv_interno, status)
+     VALUES ($1,$2,$3,$4,'bot')
+     ON CONFLICT (chatwoot_conversation_id) DO UPDATE SET
+       wa_upsell_id=EXCLUDED.wa_upsell_id,
+       chatwoot_conv_interno=COALESCE(EXCLUDED.chatwoot_conv_interno, conversas.chatwoot_conv_interno),
+       atualizado_em=now()`,
+    [row.id, convId, contatoId, ids?.interno ?? null],
   );
   return Number(convId);
 }
@@ -701,24 +761,24 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
     // na próxima volta — conversa travada sem dono é cliente preso no limbo).
     if (ctx.chatwoot) {
       const paraLiberar = await ctx.db.query(
-        `SELECT c.id, c.chatwoot_conversation_id AS cid, w.store, w.order_id
+        `SELECT c.id, c.chatwoot_conv_interno AS interno, w.store, w.order_id
          FROM conversas c JOIN wa_upsell w ON w.id = c.wa_upsell_id
          WHERE c.liberada_em IS NULL AND c.status='bot' AND w.status='closed'
-           AND w.store <> 'sandbox'
+           AND w.store <> 'sandbox' AND c.chatwoot_conv_interno IS NOT NULL
            AND c.atualizado_em < now() - ($1 || ' minutes')::interval
          LIMIT 20`,
         [ctx.cfg.WA_UPSELL_LIBERA_CONVERSA_MIN],
       );
       for (const c of paraLiberar.rows) {
         try {
-          if (c.cid) await ctx.chatwoot.destravarConversa(Number(c.cid));
+          await ctx.chatwoot.destravarConversa(Number(c.interno));
           await ctx.db.query('UPDATE conversas SET liberada_em=now(), atualizado_em=now() WHERE id=$1', [c.id]);
           await espelhoNota(ctx, c.store, c.order_id, '🔓 Conversa liberada pro fluxo normal do SAC (funil encerrado, sem interação recente). O agente do upsell não responde mais aqui.');
         } catch (e) {
           await logEvento(ctx, c.store, {
             erro: 'liberar_conversa_falhou',
             conversa_id: c.id,
-            chatwoot_conversation_id: c.cid,
+            chatwoot_conv_interno: c.interno,
             detalhe: String((e as Error).message).slice(0, 200),
           });
         }

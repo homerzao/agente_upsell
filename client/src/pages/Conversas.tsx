@@ -57,6 +57,7 @@ export default function Conversas() {
   const [autoOn, setAutoOn] = useState(true);
   const [texto, setTexto] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [verArquivadas, setVerArquivadas] = useState(false);
 
   const selId = sel?.id ?? null;
   const fimDoChat = useRef<HTMLDivElement | null>(null);
@@ -68,8 +69,9 @@ export default function Conversas() {
     params.set('offset', String(pagina * POR_PAGINA));
     if (buscaAtiva) params.set('q', buscaAtiva);
     if (status) params.set('status', status);
+    if (verArquivadas) params.set('arquivadas', '1');
     setDados(await get(`/api/conversas?${params}`));
-  }, [pagina, buscaAtiva, status]);
+  }, [pagina, buscaAtiva, status, verArquivadas]);
 
   // Detalhe + mensagens da conversa aberta: sem isso o cabeçalho (etapa, custo,
   // contador) congelava no estado de quando ela foi clicada.
@@ -148,6 +150,22 @@ export default function Conversas() {
     }
   };
 
+  // Arquivar tira da lista padrão (dá pra reler no filtro "Arquivadas")
+  const arquivar = async (arquivarAgora: boolean) => {
+    if (!sel) return;
+    try {
+      await post(`/api/conversas/${sel.id}/arquivar`, { desarquivar: !arquivarAgora });
+      setAviso(arquivarAgora ? '🗄 Conversa arquivada' : '📂 Conversa desarquivada');
+      if (arquivarAgora && !verArquivadas) {
+        setSel(null);
+        setMensagens([]);
+      }
+      await atualizar(true);
+    } catch (e: any) {
+      setErro(e.message);
+    }
+  };
+
   const enviar = async () => {
     const msg = texto.trim();
     if (!sel || !msg) return;
@@ -204,6 +222,18 @@ export default function Conversas() {
               <option value="bot">🤖 bot</option>
               <option value="humano">👤 humano</option>
             </select>
+            <button
+              onClick={() => {
+                setPagina(0);
+                setSel(null);
+                setMensagens([]);
+                setVerArquivadas(!verArquivadas);
+              }}
+              className={verArquivadas ? 'primario' : ''}
+              title="Alterna entre conversas ativas e arquivadas"
+            >
+              {verArquivadas ? '↩ Ativas' : '🗄 Arquivadas'}
+            </button>
             {buscaAtiva && (
               <button
                 onClick={() => {
@@ -287,6 +317,12 @@ export default function Conversas() {
                   </button>
                   <button onClick={() => setAutoOn(!autoOn)} title={`auto a cada ${INTERVALO_MS / 1000}s`}>
                     {autoOn ? '⏸' : '▶'}
+                  </button>
+                  <button
+                    onClick={() => arquivar(!sel.arquivada_em)}
+                    title={sel.arquivada_em ? 'Tirar do arquivo' : 'Arquivar (some da lista; veja em Arquivadas)'}
+                  >
+                    {sel.arquivada_em ? '📂 Desarquivar' : '🗄 Arquivar'}
                   </button>
                   {ehHumano ? (
                     <button onClick={() => acao('devolver', 'Devolver a conversa ao bot? Ele volta a responder sozinho.')}>

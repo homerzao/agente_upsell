@@ -11,6 +11,29 @@ export type DadosTemplate = {
   endereco: string;
 };
 
+// Mesmo template, no formato da rota /api/v2/whatsapp/send_template do TechSAC.
+// Ela cria a conversa já TRAVADA e devolve o conversation_id INTERNO — único
+// jeito de obtê-lo (a API v1 não expõe) e sem ele não dá pra destravar depois.
+export function montarTemplateTechSAC(args: {
+  to: string;
+  contactName: string;
+  templateNome: string;
+  flowToken: string;
+  headerUrl?: string;
+  headerMediaId?: string;
+  copies: Record<string, string>;
+  dados: DadosTemplate;
+}): Record<string, unknown> {
+  const meta = montarTemplateConfirma(args) as any;
+  return {
+    to_number: args.to,
+    contact_name: args.contactName,
+    template: { name: args.templateNome, language: { policy: 'deterministic', code: 'pt_BR' } },
+    components: meta.template.components,
+    lock_conversation: true, // a resposta fica com o funil, não abre sessão no SAC
+  };
+}
+
 export function montarTemplateConfirma(args: {
   to: string;
   templateNome: string;
