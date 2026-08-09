@@ -500,9 +500,16 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       vals.push(limit, offset);
       const rows = (
         await db.query(
+          // Ordem = ÚLTIMA INTERAÇÃO (mensagem trocada), não `atualizado_em`:
+          // esse campo é bumpado por status da Meta, liberação e sweeper, então
+          // conversa velha subia pro topo sem ninguém ter falado nada.
           `${SELECT_CONVERSA}
            ${cond}
-           ORDER BY c.atualizado_em DESC LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
+           ORDER BY COALESCE(
+             (SELECT MAX(m.criado_em) FROM mensagens_ia m WHERE m.conversa_id = c.id),
+             c.criado_em
+           ) DESC
+           LIMIT $${vals.length - 1} OFFSET $${vals.length}`,
           vals,
         )
       ).rows;

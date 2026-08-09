@@ -90,6 +90,10 @@ export async function registrarCorrecao(
       const { first_name, last_name } = splitNome(campos.nome);
       mudancas.first_name = first_name;
       mudancas.last_name = last_name;
+      // `name` MANDA na Yampi: mandar só first/last e deixar o name velho no
+      // corpo espelhado faz o antigo voltar (read-back divergente na correção 8,
+      // Kátia, 09/08). Os três têm que ir juntos e coerentes.
+      mudancas.name = campos.nome;
       antes.nome = clienteAtual.name ?? [clienteAtual.first_name, clienteAtual.last_name].filter(Boolean).join(' ');
       depois.nome = campos.nome;
     }
@@ -204,7 +208,7 @@ export async function aprovarCorrecao(
         await ctx.yampi.putCustomer(put.id, put.body);
         // read-back: confere que os campos pedidos realmente mudaram
         const lido = await ctx.yampi.getCustomer(put.id);
-        const chaves = Object.keys(put.body).filter((k) => ['first_name', 'last_name', 'email'].includes(k));
+        const chaves = Object.keys(put.body).filter((k) => ['first_name', 'last_name', 'name', 'email'].includes(k));
         const div = verificarReadback(put.body, lido, chaves);
         if (div.length) throw new Error(`read-back divergente (customer): ${div.join(', ')}`);
       } else {

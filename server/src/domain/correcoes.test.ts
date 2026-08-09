@@ -161,6 +161,19 @@ describe('registrarCorrecao', () => {
     expect(put.body.city).toBe('Belém'); // espelhado, não zera
   });
 
+  // Correção 8 (Kátia, 09/08): só first/last no corpo e o `name` velho junto —
+  // a Yampi manteve o nome antigo e o read-back acusou divergência.
+  it('nome: manda name junto com first/last (senão a Yampi ignora)', async () => {
+    const { db, correcoes } = dbCorrecao();
+    const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });
+    const r = await registrarCorrecao(ctx, 'hidrabene', 169610420, { nome: 'Katia Regina Duarte da Silva' });
+    expect(r.ok).toBe(true);
+    const body = correcoes[0].put_yampi.puts[0].body;
+    expect(body.first_name).toBe('Katia');
+    expect(body.last_name).toBe('Regina Duarte da Silva');
+    expect(body.name).toBe('Katia Regina Duarte da Silva'); // os três coerentes
+  });
+
   it('sem campos: erro', async () => {
     const { db } = dbCorrecao();
     const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });
