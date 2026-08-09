@@ -67,7 +67,36 @@ const cfgBase: DisparosConfig = {
   rate_por_hora: 0,
   pausado: false,
   amostra_restante: null,
+  treinamento: '',
+  debug_meta: false,
+  metodos_permitidos: [],
 };
+
+// Só PIX entra no funil (decisão do Jorge, 09/08): cartão e boleto ficam
+// closed/fora_do_fluxo e seguem pro faturamento normalmente.
+describe('filtro de método de pagamento', () => {
+  const soPix: DisparosConfig = { ...cfgBase, metodos_permitidos: ['pix'] };
+  it('PIX entra', () => {
+    expect(decidirDisparo(soPix, '04686204194', true, 'pix')).toEqual({ elegivel: true });
+  });
+  it('cartão e boleto ficam de fora', () => {
+    for (const m of ['mastercard', 'visa', 'elo', 'amex', 'billet']) {
+      expect(decidirDisparo(soPix, '04686204194', true, m)).toEqual({
+        elegivel: false,
+        motivo: 'metodo_fora_do_filtro',
+      });
+    }
+  });
+  it('sem método identificado NÃO entra quando há filtro (conservador)', () => {
+    expect(decidirDisparo(soPix, '04686204194', true, null)).toEqual({
+      elegivel: false,
+      motivo: 'metodo_fora_do_filtro',
+    });
+  });
+  it('lista vazia aceita qualquer método', () => {
+    expect(decidirDisparo(cfgBase, '04686204194', true, 'mastercard')).toEqual({ elegivel: true });
+  });
+});
 
 describe('decidirDisparo (disparo controlado)', () => {
   it('kill switch pausa tudo', () => {

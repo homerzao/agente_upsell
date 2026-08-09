@@ -227,15 +227,17 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           pausado: z.boolean().optional(),
           amostra_restante: z.number().int().min(0).nullable().optional(),
           debug_meta: z.boolean().optional(),
+          metodos_permitidos: z.array(z.string()).optional(), // [] = todos
         })
         .parse(req.body ?? {});
       const atual = await getDisparosConfig(ctx);
       const novo = { ...atual, ...body };
       await db.query(
         `UPDATE disparos_config SET modo=$1, cpf_filtro=$2, rate_por_hora=$3, pausado=$4,
-           amostra_restante=$5, debug_meta=$6, atualizado_em=now() WHERE id=1`,
+           amostra_restante=$5, debug_meta=$6, metodos_permitidos=$7, atualizado_em=now() WHERE id=1`,
         [novo.modo, (novo.cpf_filtro ?? []).map(soDigitos).filter(Boolean), novo.rate_por_hora,
-         novo.pausado, novo.amostra_restante, novo.debug_meta],
+         novo.pausado, novo.amostra_restante, novo.debug_meta,
+         (novo.metodos_permitidos ?? []).map((m) => String(m).trim().toLowerCase()).filter(Boolean)],
       );
       await auditar(usuario(req), 'disparo_config', null, { antes: atual, depois: novo });
       return { ok: true, config: novo };

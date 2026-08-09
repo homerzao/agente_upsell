@@ -36,13 +36,29 @@ export function interpretarRespostaFlow(resposta: RespostaFlow): AcaoResposta {
 
 export type DecisaoDisparo =
   | { elegivel: true }
-  | { elegivel: false; motivo: 'pausado' | 'cpf_fora_do_filtro' | 'amostra_esgotada' | 'sem_oferta_ativa' };
+  | {
+      elegivel: false;
+      motivo: 'pausado' | 'cpf_fora_do_filtro' | 'amostra_esgotada' | 'sem_oferta_ativa' | 'metodo_fora_do_filtro';
+    };
 
 // Elegibilidade do disparo controlado. Pedido NÃO elegível AINDA é registrado
 // (closed/fora_do_fluxo): o faturamento consulta qualquer pedido e sempre recebe resposta.
-export function decidirDisparo(cfg: DisparosConfig, cpf: string | null | undefined, temOfertaAtiva: boolean): DecisaoDisparo {
+export function decidirDisparo(
+  cfg: DisparosConfig,
+  cpf: string | null | undefined,
+  temOfertaAtiva: boolean,
+  metodoPagamento?: string | null,
+): DecisaoDisparo {
   if (cfg.pausado) return { elegivel: false, motivo: 'pausado' };
   if (!temOfertaAtiva) return { elegivel: false, motivo: 'sem_oferta_ativa' };
+  // Método de pagamento (alias da Yampi: pix, mastercard, visa, elo, amex, billet…).
+  // Padrão só PIX: quem pagou PIX está com o celular na mão e paga outro PIX.
+  // Lista vazia = aceita todos. Pedido SEM método identificado não entra quando
+  // há filtro — melhor deixar de fora que mandar oferta pra quem não devia.
+  const metodos = (cfg.metodos_permitidos ?? []).map((m) => String(m).toLowerCase()).filter(Boolean);
+  if (metodos.length && !metodos.includes(String(metodoPagamento ?? '').toLowerCase())) {
+    return { elegivel: false, motivo: 'metodo_fora_do_filtro' };
+  }
   if (cfg.amostra_restante !== null && cfg.amostra_restante <= 0) {
     return { elegivel: false, motivo: 'amostra_esgotada' };
   }

@@ -78,6 +78,7 @@ export async function getDisparosConfig(ctx: FunilCtx): Promise<DisparosConfig> 
     amostra_restante: row.amostra_restante ?? null,
     treinamento: row.treinamento ?? '',
     debug_meta: row.debug_meta ?? false,
+    metodos_permitidos: row.metodos_permitidos ?? [],
   };
 }
 
@@ -94,6 +95,7 @@ export async function getOferta(ctx: FunilCtx, ofertaId?: number | null): Promis
 export function normalizarPedidoYampi(o: any): {
   orderId: number;
   numero: string;
+  metodo: string | null;
   status: string | null;
   nome: string | null;
   fone: string;
@@ -116,9 +118,14 @@ export function normalizarPedidoYampi(o: any): {
   ]
     .filter(Boolean)
     .join(', ');
+  // alias do meio de pagamento (pix, mastercard, visa, elo, amex, billet…)
+  const pagamentos = o.payments?.data ?? o.payments ?? [];
+  const metodo = (Array.isArray(pagamentos) ? pagamentos[0] : null)?.alias
+    ?? o.payment?.data?.alias ?? o.payment?.alias ?? null;
   return {
     orderId: Number(o.id),
     numero: String(o.number ?? ''),
+    metodo: metodo ? String(metodo).toLowerCase() : null,
     status,
     nome: cust.name ?? ([cust.first_name, cust.last_name].filter(Boolean).join(' ') || null),
     fone: foneBr(cust.phone?.full_number ?? cust.phone ?? ''),
@@ -159,7 +166,7 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   const p = normalizarPedidoYampi(o);
   const cfgd = await getDisparosConfig(ctx);
   const oferta = await getOferta(ctx);
-  const decisao = decidirDisparo(cfgd, p.cpf, Boolean(oferta));
+  const decisao = decidirDisparo(cfgd, p.cpf, Boolean(oferta), p.metodo);
   // Registra TODO pedido pago (mesmo fora do filtro) — o faturamento consulta
   // qualquer pedido e sempre recebe resposta (closed/fora_do_fluxo).
   const ins = await ctx.db.query(
@@ -769,6 +776,16 @@ export async function dispararManual(ctx: FunilCtx, store: string, orderId: numb
      ON CONFLICT (store, order_id) DO UPDATE SET status=EXCLUDED.status, payload=EXCLUDED.payload, atualizado_em=now()`,
     [store, p.orderId, p.status, o],
   );
-  await ctx.redis.rpush(FILA_DISPARO, JSON.stringify({ store, order_id: p.orderId }));
+  // Disparo manual NÃO passa pela fila: é decisão humana explícita, um pedido
+  // por vez. Pela fila ele ficaria preso enquanto o kill switch estivesse
+  // ligado — e é justamente com o automático pausado que se faz teste dirigido
+  // (ex.: escolher 5 clientes na mão). Também dá retorno imediato no painel.
+  const row = await getRow(ctx, store, p.orderId);
+  if (!row) return { ok: false, erro: 'row não encontrada após semear' };
+  await dispararTemplate(ctx, row);
+  const depois = await getRow(ctx, store, p.orderId);
+  if (depois?.disparo_status === 'erro') {
+    return { ok: false, erro: 'falha no envio — ver aba Logs' };
+  }
   return { ok: true };
 }

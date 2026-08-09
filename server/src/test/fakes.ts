@@ -236,5 +236,6 @@ export const configDisparoRow = (over: Record<string, unknown> = {}) => ({
   rate_por_hora: 0,
   pausado: false,
   amostra_restante: null,
+  metodos_permitidos: [], // [] = todos (testes antigos não olham método)
   ...over,
 });
