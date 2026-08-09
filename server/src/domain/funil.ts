@@ -659,6 +659,14 @@ export async function reenviarPix(
   if (row.etapa === 'pago') return { ok: false, motivo: 'ja_pago' };
   // Pedido que nunca entrou no funil não pode ser reaberto/cobrado pelo agente
   if (row.etapa === 'fora_do_fluxo') return { ok: false, motivo: 'pedido_fora_do_fluxo' };
+  // Cliente que NUNCA aceitou não pode ganhar PIX por atalho: o caminho abaixo
+  // reabre a row como 'confirmado' e chama aceitarOferta, ou seja, aceitaria a
+  // oferta no lugar dela e geraria cobrança que ela não pediu. Aceite só pelo
+  // botão do flow. (Silvana, 09/08: mandou o comprovante do pedido do SITE 12s
+  // depois do disparo e o agente se ofereceu pra "enviar o código correto".)
+  if (row.etapa === 'aguardando_confirmacao' && !row.aceitou_em) {
+    return { ok: false, motivo: 'cliente_ainda_nao_aceitou' };
+  }
   const cfgd = await getDisparosConfig(ctx);
   // PIX ainda vivo: reenvia o MESMO código (idempotente — nunca cobrar 2×)
   if (row.etapa === 'pix_enviado' && row.pix_codigo && row.pix_expira_em && new Date(row.pix_expira_em) > new Date()) {

@@ -256,6 +256,19 @@ describe('guardas de estado final e reabertura', () => {
     expect(ctx.metaFake.enviadas.length).toBe(0);
   });
 
+  // Silvana (09/08): mandou o comprovante do pedido do SITE 12s depois do
+  // disparo, sem nunca ter aberto o flow. Se o agente chamasse reenviar_pix
+  // aqui, o caminho de baixo reabriria a row como 'confirmado' e chamaria
+  // aceitarOferta — aceitando a oferta no lugar dela.
+  it('reenviar_pix NÃO aceita a oferta por quem nunca aceitou', async () => {
+    const db = dbFunil({ row: { etapa: 'aguardando_confirmacao', status: 'open', aceitou_em: null } });
+    const ctx = ctxTeste({ db });
+    const r = await reenviarPix(ctx, 'hidrabene', 169610420);
+    expect(r).toEqual({ ok: false, motivo: 'cliente_ainda_nao_aceitou' });
+    expect(db.achou(/UPDATE wa_upsell SET status='open'/).length).toBe(0);
+    expect(ctx.metaFake.enviadas.length).toBe(0); // nenhuma cobrança, nenhum código
+  });
+
   it('reenviar_pix com PIX vivo reenvia o MESMO código (nunca cobra 2×)', async () => {
     const db = dbFunil({
       row: {
