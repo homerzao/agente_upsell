@@ -88,7 +88,16 @@ export function webhookRoutes(app: FastifyInstance, ctx: AgenteCtx): void {
     // A Meta chama DIRETO (decisão do Jorge, sem n8n): com META_APP_SECRET
     // configurado, payload sem assinatura válida é recusado.
     const rawBody = (req as any).rawBody ?? '';
-    if (!ctx.meta.validarAssinatura(rawBody, req.headers['x-hub-signature-256'] as string | undefined)) {
+    const assinatura = req.headers['x-hub-signature-256'] as string | undefined;
+    // Contingência de roteador (n8n): com ?t=<token> válido na URL, aceita sem
+    // assinatura — o forward não repassa os headers da Meta. Sem token, a
+    // assinatura continua obrigatória.
+    const tokenOk = (req.query as any).t === cfg.webhookTokenMeta;
+    if (!tokenOk && !ctx.meta.validarAssinatura(rawBody, assinatura)) {
+      await logEvento(ctx, 'hidrabene', {
+        erro: 'meta_assinatura_invalida',
+        detalhe: assinatura ? 'header presente mas não confere (app secret errado?)' : 'sem header x-hub-signature-256',
+      });
       return reply.code(403).send({ error: 'assinatura inválida' });
     }
     const body = (req.body ?? {}) as any;

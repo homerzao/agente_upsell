@@ -327,11 +327,15 @@ export async function espelhoNota(ctx: FunilCtx, store: string, orderId: number,
 export async function buscarRowContextoAtivo(ctx: FunilCtx, fone: string): Promise<WaUpsellRow | null> {
   const dig = foneBr(fone);
   if (!dig) return null;
-  // Fallback pelos últimos 11 dígitos (DDD+9+número): cobre row legada gravada
-  // sem DDI e o caso da Meta mandar o número sem o nono dígito.
+  // Match por DDD + ÚLTIMOS 8 DÍGITOS. Motivo (bug real 08/08): o wa_id da Meta
+  // vem SEM o nono dígito (5591 92148793) e a Yampi grava COM (5591 992148793)
+  // — comparar 11 dígitos falha e a mensagem do cliente era descartada como
+  // "SAC comum". Os 8 finais + DDD identificam o assinante nos dois formatos.
   const r = await ctx.db.query(
     `SELECT * FROM wa_upsell
-     WHERE (customer_phone = $1 OR right($1, 11) = right(customer_phone, 11)) AND store='hidrabene'
+     WHERE store='hidrabene'
+       AND right(customer_phone, 8) = right($1, 8)
+       AND substring(customer_phone from 3 for 2) = substring($1 from 3 for 2)
        AND etapa <> 'fora_do_fluxo' AND disparo_status IS NOT NULL
        AND (status='open' OR atualizado_em > now() - interval '24 hours')
      ORDER BY criado_em DESC LIMIT 1`,

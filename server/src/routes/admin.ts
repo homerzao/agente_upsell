@@ -460,6 +460,8 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           pagarme: `${base}/webhook/pagarme?t=${cfg.webhookTokenPagarme}`,
           chatwoot: `${base}/webhook/chatwoot?t=${cfg.webhookTokenChatwoot}`,
           meta: `${base}/webhook/meta`,
+          // contingência: roteador (n8n) que não repassa a assinatura da Meta
+          meta_router: `${base}/webhook/meta?t=${cfg.webhookTokenMeta}`,
         },
         modelo_ia: cfg.OPENAI_MODEL,
         template: cfg.WA_UPSELL_TEMPLATE_CONFIRMA,

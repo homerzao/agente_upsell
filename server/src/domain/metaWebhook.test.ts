@@ -12,7 +12,7 @@ function dbMeta(over: { rowContexto?: Record<string, unknown> | null } = {}) {
   db.on(/SELECT \* FROM disparos_config/, () => [configDisparoRow()]);
   db.on(/SELECT \* FROM ofertas WHERE id/, () => [ofertaBase({ copies: COPIES_DEFAULT })]);
   db.on(/SELECT \* FROM wa_upsell WHERE store/, () => [rowBase()]);
-  db.on(/SELECT \* FROM wa_upsell\s+WHERE \(?customer_phone/, () =>
+  db.on(/SELECT \* FROM wa_upsell\s+WHERE store='hidrabene'\s+AND right\(customer_phone/, () =>
     over.rowContexto === null ? [] : [rowBase(over.rowContexto)],
   );
   return db;

@@ -71,6 +71,7 @@ export type Config = z.infer<typeof schema> & {
   webhookTokenYampi: string;
   webhookTokenPagarme: string;
   webhookTokenChatwoot: string;
+  webhookTokenMeta: string;
 };
 
 // Token fraco de URL de webhook: derivado por sha256 do BACKEND_TOKEN (um por origem).
@@ -85,5 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookTokenYampi: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'yampi'),
     webhookTokenPagarme: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'pagarme'),
     webhookTokenChatwoot: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'chatwoot'),
+    webhookTokenMeta: derivarTokenWebhook(parsed.BACKEND_TOKEN, 'meta'),
   };
 }
