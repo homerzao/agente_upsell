@@ -100,11 +100,23 @@ async function montarContexto(ctx: AgenteCtx, row: WaUpsellRow): Promise<Context
   };
 }
 
-async function historicoMensagens(ctx: AgenteCtx, conversaId: number, limite = 20): Promise<ChatMessage[]> {
+// Histórico SÓ do ciclo atual do funil. O mesmo cliente reaproveita a conversa
+// do Chatwoot entre pedidos: sem este corte, o agente lê "essa oferta já
+// encerrou" de um pedido antigo e repete isso com a oferta NOVA em pé — foi o
+// que aconteceu no teste do Jorge (09/08), 14s depois de mandar o PIX.
+// `criado_em` da row é resetado a cada disparo, então marca o início do ciclo.
+async function historicoMensagens(
+  ctx: AgenteCtx,
+  conversaId: number,
+  cicloDesde: string | Date | null,
+  limite = 20,
+): Promise<ChatMessage[]> {
   const r = await ctx.db.query(
-    `SELECT direcao, texto FROM mensagens_ia WHERE conversa_id=$1 AND texto IS NOT NULL
+    `SELECT direcao, texto FROM mensagens_ia
+     WHERE conversa_id=$1 AND texto IS NOT NULL
+       AND ($3::timestamptz IS NULL OR criado_em >= $3::timestamptz)
      ORDER BY id DESC LIMIT $2`,
-    [conversaId, limite],
+    [conversaId, limite, cicloDesde ?? null],
   );
   return r.rows.reverse().map((m: any) => ({
     role: m.direcao === 'in' ? ('user' as const) : ('assistant' as const),
@@ -153,7 +165,7 @@ export async function processarMensagemCliente(
   try {
     const contexto = await montarContexto(ctx, row);
     const system = montarSystemPrompt(contexto, cfgd.treinamento);
-    const historico = await historicoMensagens(ctx, conversa.id);
+    const historico = await historicoMensagens(ctx, conversa.id, (row as any).criado_em ?? null);
     const messages: ChatMessage[] = [{ role: 'system', content: system }, ...historico];
     // (a mensagem atual já entrou no histórico via INSERT acima)
 

@@ -71,7 +71,9 @@ ${itens ? `- Itens:\n${itens}` : ''}
 ${c.linkRastreio ? `- PÁGINA DE ACOMPANHAMENTO (funciona desde o pagamento; mande SEMPRE que o cliente perguntar de entrega, prazo, rastreio ou "cadê meu pedido"): ${c.linkRastreio}
   Nunca diga só "ainda não tem rastreio": mande o link e explique que o código aparece nele assim que o pedido for despachado (até 48h úteis).` : ''}
 
-ESTADO DO FUNIL:
+ESTADO DO FUNIL (esta é a VERDADE AGORA — se alguma mensagem anterior desta
+conversa disser o contrário, ela é de um pedido/ciclo antigo: IGNORE. Nunca diga
+que a oferta encerrou ou que o PIX não vale se os campos abaixo disserem o oposto):
 - Etapa: ${c.row.etapa} (${c.row.status})
 - PIX: ${pixVivo ? `ATIVO, expira em ${c.row.pix_expira_em}` : c.row.pix_charge_id ? 'expirado' : 'não gerado'}
 - Pagamento da oferta: ${c.pagamento ? `CONFIRMADO (R$ ${c.pagamento.valor} em ${c.pagamento.pago_em})` : 'não realizado'}
