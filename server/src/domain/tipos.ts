@@ -32,6 +32,12 @@ export type WaUpsellRow = {
   pix_codigo: string | null;
   pix_enviado_em: string | null;
   pix_expira_em: string | null;
+  // marcos do funil (migration 012) — usados pelo dashboard e pelas travas
+  disparado_em: string | null;
+  entregue_em: string | null;
+  lido_em: string | null;
+  abriu_flow_em: string | null;
+  aceitou_em: string | null;
   criado_em: string;
   atualizado_em: string;
 };
