@@ -573,7 +573,9 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
     nome,
     produto: oferta.nome,
     preco: valorBr(oferta.preco),
-    minutos: ctx.cfg.WA_UPSELL_PIX_TTL_MIN,
+    // prazo ANUNCIADO (menor que a validade real de propósito): cria urgência
+    // sem perder quem paga 1-2 min depois
+    minutos: ctx.cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN,
   });
   await ctx.meta.enviarTexto(fone, msgAceite).then(
     () => espelhoNota(ctx, store, orderId, `🏆 Cliente ACEITOU a oferta.\n\n🤖 Enviado (WhatsApp): ${msgAceite}`, msgAceite),
@@ -630,7 +632,7 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
   // em mensagem de sessão separada pra facilitar copiar com 1 toque.
   try {
     await ctx.meta.enviarTexto(fone, pix.codigo);
-    await espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): código PIX copia-e-cola da oferta — R$ ${valorBr(oferta.preco)}, vale ${ctx.cfg.WA_UPSELL_PIX_TTL_MIN} min (charge ${pix.chargeId ?? '?'}).`);
+    await espelhoNota(ctx, store, orderId, `🤖 Enviado (WhatsApp): código PIX copia-e-cola da oferta — R$ ${valorBr(oferta.preco)}, anunciado ${ctx.cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN} min / vale de fato ${ctx.cfg.WA_UPSELL_PIX_TTL_MIN} min (charge ${pix.chargeId ?? '?'}).`);
   } catch (e) {
     await logEvento(ctx, store, { erro: 'pix_msg_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
   }
@@ -729,10 +731,41 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
 
 export async function sweep(ctx: FunilCtx): Promise<void> {
   try {
+    // Lembrete X min APÓS o envio do PIX ("vence em 3 minutos"), calibrado pelo
+    // prazo ANUNCIADO — não pelo real, que é maior de propósito. No piloto real
+    // (09/08) 2 de 3 clientes aceitaram e sumiram sem esse empurrão.
+    // Uma vez por cobrança (flag lembrete_pix_em, tomada no próprio UPDATE).
+    if (ctx.cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN > 0) {
+      const paraLembrar = await ctx.db.query(
+        `UPDATE wa_upsell SET lembrete_pix_em=now()
+         WHERE status='open' AND etapa='pix_enviado' AND store <> 'sandbox'
+           AND lembrete_pix_em IS NULL AND pix_enviado_em IS NOT NULL
+           AND pix_enviado_em < now() - ($1 || ' minutes')::interval
+           AND (pix_expira_em IS NULL OR pix_expira_em > now())
+         RETURNING store, order_id, customer_phone, customer_name, oferta_id`,
+        [ctx.cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN],
+      );
+      for (const r of paraLembrar.rows) {
+        const cfgd = await getDisparosConfig(ctx);
+        const oferta = await getOferta(ctx, r.oferta_id);
+        const msg = renderCopy(
+          oferta?.copies?.msg_lembrete_pix ??
+            'Ó, {{nome}}: seu código PIX vence em pouquinho ⏱️\n\nÉ só colar no app do banco que o kit entra no seu pedido, sem frete extra.',
+          { nome: primeiroNome(r.customer_name) },
+        );
+        await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, r.customer_phone), msg).then(
+          () => espelhoNota(ctx, r.store, r.order_id, `⏱️ Lembrete de PIX enviado.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg),
+          async (e) => {
+            await logEvento(ctx, r.store, { erro: 'lembrete_pix_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
+          },
+        );
+      }
+    }
     // PIX vencido: fecha expirado. Cancelamento na Pagar.me é best-effort —
     // GOTCHA 11: charge pending responde 412 (esperado); o QR morre sozinho.
     const venc = await ctx.db.query(
-      `SELECT store, order_id, pix_charge_id FROM wa_upsell
+      `SELECT store, order_id, order_number, pix_charge_id, customer_phone, customer_name, oferta_id
+       FROM wa_upsell
        WHERE status='open' AND etapa='pix_enviado' AND store <> 'sandbox'
          AND pix_enviado_em < now() - ($1 || ' minutes')::interval`,
       [ctx.cfg.WA_UPSELL_CLOSE_MIN],
@@ -750,11 +783,32 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
       }
       // UPDATE condicionado: se o webhook de pagamento chegou DURANTE esta volta
       // (entre o SELECT e aqui), o 'pago' vence — nunca sobrescrever com 'expirado'
-      await ctx.db.query(
+      const fechou = await ctx.db.query(
         `UPDATE wa_upsell SET status='closed', etapa='expirado', atualizado_em=now()
-         WHERE store=$1 AND order_id=$2 AND status='open' AND etapa='pix_enviado'`,
+         WHERE store=$1 AND order_id=$2 AND status='open' AND etapa='pix_enviado'
+         RETURNING order_id`,
         [r.store, r.order_id],
       );
+      // Aviso de expiração: antes o cliente que aceitou e não pagou simplesmente
+      // ficava no vácuo. Só sai se ESTA volta foi quem fechou (o RETURNING acima
+      // garante: se o pagamento entrou no meio, nada é enviado).
+      if (fechou.rows.length) {
+        const cfgd = await getDisparosConfig(ctx);
+        const oferta = await getOferta(ctx, r.oferta_id);
+        const msg = renderCopy(
+          oferta?.copies?.msg_pix_expirado ??
+            'Poxa, {{nome}}, o código PIX do Ticket Dourado venceu ⏱️\n\nSeu pedido *#{{numero}}* segue confirmado e vai pro faturamento normalmente.\n\nSe ainda quiser o kit, me chama aqui que eu vejo o que dá pra fazer.',
+          { nome: primeiroNome(r.customer_name), numero: r.order_number ?? '' },
+        );
+        if (msg) {
+          await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, r.customer_phone), msg).then(
+            () => espelhoNota(ctx, r.store, r.order_id, `⏱️ PIX expirou sem pagamento.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg),
+            async (e) => {
+              await logEvento(ctx, r.store, { erro: 'msg_pix_expirado_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
+            },
+          );
+        }
+      }
     }
     // Janela pré-aceite de 25min (alinhada à liberação do pedido no ERP ~28min):
     // fecha aguardando_confirmacao/confirmado/erro_disparo como sem_resposta.

@@ -42,6 +42,16 @@ export const COPIES_DEFAULT: Record<string, string> = {
   msg_aceite_tardio:
     'Poxa, {{nome}}! 😔 Essa oferta relâmpago era por tempo limitado e acabou de expirar.\n\nMas fica tranquila: seu pedido *#{{numero}}* está confirmado e segue normalmente pro faturamento. O código de rastreio chega por aqui no WhatsApp. 💙',
 
+  // Última chance antes do prazo ANUNCIADO acabar. No piloto real (09/08),
+  // 2 de 3 aceites viraram expirado: a pessoa aceita e some sem um empurrão.
+  msg_lembrete_pix:
+    '⏱️ {{nome}}, seu código PIX vence em 3 minutos!\n\nÚltima chance de garantir o Kit Clareador por R$ 49,91 dentro do mesmo pedido, sem frete extra.\n\nÉ só colar aqui em cima no app do banco 💛',
+
+  // Venceu de verdade (prazo real, maior que o anunciado). Tom POSITIVO: o
+  // cliente comprou, então agradece e tranquiliza — não é hora de lamentar.
+  msg_pix_expirado:
+    'Tudo certo por aqui, {{nome}}! Seu pedido *#{{numero}}* está confirmado e já segue pro faturamento 📦\n\nO prazo do Ticket Dourado encerrou, mas isso não muda nada no seu pedido: assim que sair, o código de rastreio chega por aqui.\n\nObrigada pela compra! 💛',
+
   // Despedida no fechamento do flow (recusou / confirmou terminal / expirada) — pedido do Jorge
   msg_despedida:
     'Tudo certo, {{nome}}! ✅ Seu pedido *#{{numero}}* está confirmado e já segue pro faturamento.\n\n📦 Assim que for enviado, o código de rastreio chega por aqui no WhatsApp.\n\nObrigada pela preferência! 💙',

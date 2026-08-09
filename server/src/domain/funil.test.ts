@@ -273,9 +273,9 @@ describe('guardas de estado final e reabertura', () => {
 describe('sweep', () => {
   it('fecha expirado com UPDATE condicionado (pago que chegou no meio vence) e exclui sandbox', async () => {
     const db = dbFunil();
-    db.on(/SELECT store, order_id, pix_charge_id FROM wa_upsell/, (_v, text) => {
+    db.on(/SELECT store, order_id, order_number, pix_charge_id/, (_v, text) => {
       expect(text).toContain("store <> 'sandbox'");
-      return [{ store: 'hidrabene', order_id: 169610420, pix_charge_id: 'ch_1' }];
+      return [{ store: 'hidrabene', order_id: 169610420, order_number: '1517221', pix_charge_id: 'ch_1' }];
     });
     const ctx = ctxTeste({ db });
     await sweep(ctx);

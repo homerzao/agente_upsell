@@ -57,8 +57,13 @@ const schema = z.object({
   WA_UPSELL_FLOW_ID: z.string().default('3548925675262517'),
   WA_UPSELL_HEADER_MEDIA_ID: z.string().default(''),
   WA_UPSELL_HEADER_URL: z.string().default(''),
-  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(5),
-  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(10),
+  // Validade REAL do PIX na Pagar.me. Fica maior que o prazo anunciado de
+  // propósito (decisão do Jorge, 09/08): quem paga aos 11-12 min ainda entra.
+  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(15),
+  // Prazo ANUNCIADO ao cliente na mensagem do aceite (cria urgência real)
+  WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(10),
+  // Fecha como expirado só DEPOIS da validade real (com folga de 1 min)
+  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(16),
   // Janela pré-aceite: fecha aguardando_confirmacao/confirmado/erro_disparo (ERP libera ~28min)
   WA_UPSELL_JANELA_MIN: z.coerce.number().default(25),
   // Auto-close SÓ do corrigir_sac (atendimento humano)
@@ -69,6 +74,9 @@ const schema = z.object({
   // Idade máxima do pedido (horas) pra entrar no funil. Protege contra pedido
   // antigo sendo faturado agora parecer "acabou de pagar" (ver decidirDisparo).
   WA_UPSELL_IDADE_MAX_HORAS: z.coerce.number().default(24),
+  // Lembrete X minutos APÓS o envio do PIX (0 = desligado). Calibrar pelo prazo
+  // ANUNCIADO: com 10 anunciado, 7 aqui = "vence em 3 minutos".
+  WA_UPSELL_LEMBRETE_PIX_APOS_MIN: z.coerce.number().default(7),
   // '1' = loga resumo (campo/tipos/remetentes) de TODO webhook da Meta que
   // chega — diagnóstico de distribuição entre apps da WABA. Desligar depois.
   WAUP_DEBUG_META: z.string().default('0'),

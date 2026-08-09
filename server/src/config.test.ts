@@ -30,8 +30,15 @@ describe('loadConfig', () => {
     expect(cfg.WA_FONE_TESTE).toBe('5591992148793'); // fone do Jorge
     expect(cfg.WA_UPSELL_TEMPLATE_CONFIRMA).toBe('confirma_pedido_up');
     expect(cfg.WA_UPSELL_FLOW_ID).toBe('3548925675262517'); // v6 (data_exchange)
-    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(5);
-    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(10);
+    // Validade real MAIOR que o prazo anunciado (decisão do Jorge, 09/08):
+    // quem paga aos 11-12 min ainda entra; o fechamento vem depois dos dois.
+    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(15);
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(10);
+    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(16);
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_TTL_MIN);
+    expect(cfg.WA_UPSELL_CLOSE_MIN).toBeGreaterThan(cfg.WA_UPSELL_PIX_TTL_MIN);
+    // o lembrete tem que cair ANTES do prazo anunciado, senão não é lembrete
+    expect(cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN);
     expect(cfg.WA_UPSELL_JANELA_MIN).toBe(25); // ERP libera ~28min
     expect(cfg.WA_UPSELL_AUTO_CLOSE_HORAS).toBe(4); // só corrigir_sac
     expect(cfg.OPENAI_MODEL).toBe('gpt-5.6-luna');
