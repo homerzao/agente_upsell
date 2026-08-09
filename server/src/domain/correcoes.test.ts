@@ -169,13 +169,26 @@ describe('registrarCorrecao', () => {
   });
 });
 
-describe('aprovarCorrecao (aplica + read-back + avisa + fecha)', () => {
-  it('fluxo completo', async () => {
-    const { db, correcoes } = dbCorrecao();
+describe('aprovarCorrecao (aplica + read-back + fecha)', () => {
+  // Aprovar é ato INTERNO: não manda nada pro cliente a menos que o operador
+  // marque explicitamente (pedido do Jorge, 09/08 — validação importante).
+  it('por padrão NÃO avisa o cliente', async () => {
+    const { db } = dbCorrecao();
     const yampi = yampiCorrecao();
     const ctx = ctxTeste({ db, yampi: yampi as any });
     await registrarCorrecao(ctx, 'hidrabene', 169610420, { email: 'novo@x.com' });
     const r = await aprovarCorrecao(ctx, 1, 'jorge');
+    expect(r.ok).toBe(true);
+    expect(yampi.puts.length).toBe(1); // aplicou na Yampi
+    expect(ctx.metaFake.enviadas.length).toBe(0); // e ficou quieto
+  });
+
+  it('fluxo completo (com avisar_cliente ligado)', async () => {
+    const { db, correcoes } = dbCorrecao();
+    const yampi = yampiCorrecao();
+    const ctx = ctxTeste({ db, yampi: yampi as any });
+    await registrarCorrecao(ctx, 'hidrabene', 169610420, { email: 'novo@x.com' });
+    const r = await aprovarCorrecao(ctx, 1, 'jorge', true);
     expect(r.ok).toBe(true);
     expect(yampi.puts.length).toBe(1); // aplicou SÓ depois da aprovação
     // avisou o cliente
@@ -215,11 +228,22 @@ describe('aprovarCorrecao (aplica + read-back + avisa + fecha)', () => {
 });
 
 describe('rejeitarCorrecao', () => {
+  // "Ignorar" no painel = rejeitar em silêncio (nada é enviado ao cliente)
+  it('ignorar: marca rejeitada SEM avisar ninguém', async () => {
+    const { db } = dbCorrecao();
+    const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });
+    await registrarCorrecao(ctx, 'hidrabene', 169610420, { email: 'novo@x.com' });
+    const r = await rejeitarCorrecao(ctx, 1, 'jorge', 'ignorada no painel');
+    expect(r.ok).toBe(true);
+    expect(db.achou(/UPDATE correcoes SET status='rejeitada'/).length).toBe(1);
+    expect(ctx.metaFake.enviadas.length).toBe(0);
+  });
+
   it('marca rejeitada, avisa o cliente e audita (row segue open)', async () => {
     const { db, correcoes } = dbCorrecao();
     const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });
     await registrarCorrecao(ctx, 'hidrabene', 169610420, { email: 'novo@x.com' });
-    const r = await rejeitarCorrecao(ctx, 1, 'jorge', 'dados inconsistentes');
+    const r = await rejeitarCorrecao(ctx, 1, 'jorge', 'dados inconsistentes', true);
     expect(r.ok).toBe(true);
     expect(db.achou(/UPDATE correcoes SET status='rejeitada'/).length).toBe(1);
     expect((ctx.metaFake.enviadas[0] as any).text.body).toContain('confirmar alguns detalhes');
