@@ -25,7 +25,12 @@ export const COPIES_DEFAULT: Record<string, string> = {
   flow_oferta_extras: '🚀 Frete prioritário: seu pedido fura a fila e sai na frente\n📦 Frete incluso: vai tudo junto, sem pagar nada a mais',
   flow_oferta_preco_linha: '💰 Separados, os 3 custam R$ 149,90. No Ticket Dourado: R$ 49,91.',
   flow_oferta_prazo_linha: '⏱️ Seu PIX chega aqui na conversa e vale 5 minutos. Passou, já era, a oferta não volta.',
-  flow_confirma_resumo: 'Você leva o *Kit Clareador completo* por *R$ 49,91* — entra no MESMO pedido #{{numero}}, sem nenhum frete a mais.\n\nAo confirmar, seu código PIX chega aqui na conversa.',
+  // Tela de conquista, não de burocracia (Jorge, 10/08): mostra o que a pessoa
+  // GANHOU e quanto economiza, estilo Queima de Inverno. {{economia}} e
+  // {{desconto_pct}} são CALCULADOS pelo servidor a partir de preco/preco_de —
+  // oferta nova já nasce com a conta certa.
+  flow_confirma_titulo: '🏆 OFERTA ÚNICA DESBLOQUEADA!',
+  flow_confirma_resumo: '{{nome}}, você garantiu o que ninguém mais vê:\n\n✨ *Kit Clareador completo* — 3 produtos que custam *R$ {{preco_de}}* no site — por apenas *R$ {{preco}}*.\n\n💰 Economia de *R$ {{economia}}* ({{desconto_pct}}% de desconto), dentro do MESMO pedido #{{numero}}, sem pagar um centavo a mais de frete.',
 
   // Msg 1 do aceite: sai NA HORA (resposta instantânea), ANTES de criar o PIX.
   msg_aceite:

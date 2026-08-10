@@ -16,15 +16,23 @@ import { primeiroNome, renderCopy } from '../lib/util.js';
 async function dadosOfertaV8(ctx: FunilCtx, row: NonNullable<Awaited<ReturnType<typeof getRow>>>) {
   const oferta = await getOferta(ctx, row.oferta_id);
   const copies = { ...COPIES_DEFAULT, ...(oferta?.copies ?? {}) };
+  const brl = (n: number) => n.toFixed(2).replace('.', ',');
+  // Economia calculada aqui (preco_de − preco, % real arredondada — mesma conta
+  // do badge da vitrine): copy de oferta nova nasce com os números certos.
+  const temDe = oferta?.preco_de != null && oferta.preco_de > (oferta?.preco ?? 0);
   const vars = {
     nome: primeiroNome(row.customer_name),
     numero: String(row.order_number ?? ''),
     produto: oferta?.nome ?? '',
-    preco: oferta ? oferta.preco.toFixed(2).replace('.', ',') : '',
+    preco: oferta ? brl(oferta.preco) : '',
+    preco_de: temDe ? brl(oferta!.preco_de!) : '',
+    economia: temDe ? brl(oferta!.preco_de! - oferta!.preco) : '',
+    desconto_pct: temDe ? String(Math.round((1 - oferta!.preco / oferta!.preco_de!) * 100)) : '',
   };
   const r = (chave: string) => renderCopy(copies[chave] ?? '', vars);
   return {
     titulo_ticket: r('flow_titulo_ticket'),
+    confirma_titulo: r('flow_confirma_titulo'),
     oferta_urgencia: r('flow_oferta_urgencia'),
     oferta_intro: r('flow_oferta_intro'),
     oferta_bullets: r('flow_oferta_bullets'),
@@ -71,6 +79,7 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
     return {
       screen: 'CONFIRMA',
       data: {
+        confirma_titulo: d.confirma_titulo,
         confirma_resumo: d.confirma_resumo,
         saudacao_ok: data.saudacao_ok ?? '',
       },
