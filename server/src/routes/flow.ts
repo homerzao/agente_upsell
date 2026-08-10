@@ -32,8 +32,6 @@ async function dadosOfertaV8(ctx: FunilCtx, row: NonNullable<Awaited<ReturnType<
     oferta_preco_linha: r('flow_oferta_preco_linha'),
     oferta_prazo_linha: r('flow_oferta_prazo_linha'),
     confirma_resumo: r('flow_confirma_resumo'),
-    confirma_sim: r('flow_confirma_sim'),
-    confirma_nao: r('flow_confirma_nao'),
   };
 }
 
@@ -62,9 +60,11 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
   }
 
   // v8, etapa 2: tocou "QUERO" no TICKET → double-check. Ainda NÃO é aceite —
-  // o aceite (e o PIX) só acontecem se confirmar o radio na tela seguinte.
-  // Este round-trip também é a MÉTRICA do clique acidental: quem chega aqui e
-  // não confirma era exatamente quem antes gerava PIX à toa.
+  // o aceite (e o PIX) só acontecem no botão "GERAR CÓDIGO PIX" da tela
+  // seguinte (o "Sair sem a oferta" registra recusa). Sem radio: feedback do
+  // Jorge no preview — botão dourado + link de saída na MESMA tela, igual à
+  // receita da tela do ticket. Este round-trip também é a MÉTRICA do clique
+  // acidental: quem chega aqui e não confirma era quem gerava PIX à toa.
   if (v8 && data.acao === 'quero') {
     await logEvento(ctx, ref.store, { evento: 'ticket_quero', order_id: ref.orderId });
     const d = await dadosOfertaV8(ctx, row);
@@ -72,8 +72,6 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
       screen: 'CONFIRMA',
       data: {
         confirma_resumo: d.confirma_resumo,
-        confirma_sim: d.confirma_sim,
-        confirma_nao: d.confirma_nao,
         saudacao_ok: data.saudacao_ok ?? '',
       },
     };

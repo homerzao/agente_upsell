@@ -26,8 +26,6 @@ export const COPIES_DEFAULT: Record<string, string> = {
   flow_oferta_preco_linha: '💰 Separados, os 3 custam R$ 149,90. No Ticket Dourado: R$ 49,91.',
   flow_oferta_prazo_linha: '⏱️ Seu PIX chega aqui na conversa e vale 5 minutos. Passou, já era, a oferta não volta.',
   flow_confirma_resumo: 'Você leva o *Kit Clareador completo* por *R$ 49,91* — entra no MESMO pedido #{{numero}}, sem nenhum frete a mais.\n\nAo confirmar, seu código PIX chega aqui na conversa.',
-  flow_confirma_sim: '✅ Sim — gerar meu código PIX agora',
-  flow_confirma_nao: '❌ Pensei melhor, não quero a oferta',
 
   // Msg 1 do aceite: sai NA HORA (resposta instantânea), ANTES de criar o PIX.
   msg_aceite:

@@ -17,8 +17,6 @@ const COPIES_ROTULOS: Record<string, string> = {
   flow_oferta_preco_linha: 'Flow v8 — linha do preço',
   flow_oferta_prazo_linha: 'Flow v8 — linha do prazo do PIX',
   flow_confirma_resumo: 'Flow v8 — resumo do double-check',
-  flow_confirma_sim: 'Flow v8 — opção SIM do double-check',
-  flow_confirma_nao: 'Flow v8 — opção NÃO do double-check',
   msg_aceite: 'Sessão — mensagem do aceite (antes do PIX)',
   msg_pix_instabilidade: 'Sessão — instabilidade do PIX',
   msg_corrigir: 'Sessão — pré-resposta do corrigir',
