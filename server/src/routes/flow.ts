@@ -2,6 +2,8 @@
 // "Confirmar Pedido", a META chama aqui pra decidir se mostra o TICKET
 // (dentro da janela) ou pula pro CONFIRMADO com oferta_resultado='expirada'.
 // Sem este endpoint o flow v6/v7 nem publica (a Meta valida o ping).
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import {
   decryptFlowRequest, encryptFlowResponse, type FlowPayload, type FlowRequestBody,
@@ -10,6 +12,29 @@ import { parseFlowToken } from '../domain/estados.js';
 import { getOferta, getRow, logEvento, waupSet, type FunilCtx } from '../domain/funil.js';
 import { COPIES_DEFAULT } from '../domain/copies.js';
 import { primeiroNome, renderCopy } from '../lib/util.js';
+
+// ===== Imagem do ticket POR OFERTA (v8) =====
+// A arte do cupom vai no data_exchange como base64 (mesmo mecanismo de QR
+// dinâmico da Meta): UM flow serve todas as ofertas — o Kit mostra "3 PRODUTOS
+// EXTRA", o FPS 70 mostra "+1 PROTETOR CLAREADOR" (pedido do Jorge, 10/08).
+// Arquivos moram em public/marca (servidos pelo painel e lidos daqui); JPEG
+// ~100KB pra resposta ficar leve. Cache em memória: lê 1x por arquivo.
+const IMG_1PX =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const imgCache = new Map<string, string>();
+export function imagemTicket(arquivo: string): string {
+  const nome = String(arquivo).replace(/[^a-zA-Z0-9._-]/g, ''); // sem path traversal
+  if (imgCache.has(nome)) return imgCache.get(nome)!;
+  for (const dir of ['./public/marca', '../client/public/marca', './client/public/marca']) {
+    try {
+      const b64 = fs.readFileSync(path.join(dir, nome)).toString('base64');
+      imgCache.set(nome, b64);
+      return b64;
+    } catch { /* tenta o próximo diretório */ }
+  }
+  imgCache.set(nome, IMG_1PX); // nunca quebrar o flow por arte faltando
+  return IMG_1PX;
+}
 
 // Textos da oferta da row, renderizados — v8: a tela do TICKET é 100% dinâmica
 // (multi-oferta usa o MESMO flow), e a CONFIRMA resume o que a pessoa leva.
@@ -31,6 +56,7 @@ async function dadosOfertaV8(ctx: FunilCtx, row: NonNullable<Awaited<ReturnType<
   };
   const r = (chave: string) => renderCopy(copies[chave] ?? '', vars);
   return {
+    ticket_img: imagemTicket(copies.flow_ticket_img_arquivo || 'ticket-art-kit.jpg'),
     titulo_ticket: r('flow_titulo_ticket'),
     confirma_titulo: r('flow_confirma_titulo'),
     oferta_urgencia: r('flow_oferta_urgencia'),
@@ -99,6 +125,7 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
     return {
       screen: 'TICKET',
       data: {
+        ticket_img: d.ticket_img,
         titulo_ticket: d.titulo_ticket,
         oferta_urgencia: d.oferta_urgencia,
         oferta_intro: d.oferta_intro,

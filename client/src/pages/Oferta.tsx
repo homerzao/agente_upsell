@@ -16,6 +16,7 @@ const COPIES_ROTULOS: Record<string, string> = {
   flow_oferta_extras: 'Flow v8 — extras (frete etc.)',
   flow_oferta_preco_linha: 'Flow v8 — linha do preço',
   flow_oferta_prazo_linha: 'Flow v8 — linha do prazo do PIX',
+  flow_ticket_img_arquivo: 'Flow v8 — arquivo da arte do cupom (em /marca; ex.: ticket-art-fps70.jpg)',
   flow_confirma_titulo: 'Flow v8 — título da tela de conquista',
   flow_confirma_resumo: 'Flow v8 — resumo da conquista (usa {{preco_de}} {{economia}} {{desconto_pct}})',
   msg_aceite: 'Sessão — mensagem do aceite (antes do PIX)',
