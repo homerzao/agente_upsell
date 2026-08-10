@@ -125,18 +125,26 @@ describe('iniciarFunil (disparo controlado)', () => {
 // então 2 pedidos do mesmo fone davam 2 disparos. Aconteceu com 1 cliente real
 // em 623 disparos; com multi-oferta seria pior (Kit num pedido, FPS 90 no outro).
 describe('uma oferta por cliente na janela', () => {
-  it('cliente que já recebeu oferta nas últimas 24h NÃO dispara de novo', async () => {
+  it('cliente que já recebeu oferta nas últimas 24h é detectado e logado', async () => {
     const db = dbFunil();
     db.on(/SELECT order_id FROM wa_upsell\s+WHERE store=\$1 AND disparo_status IN/, () => [{ order_id: 169610000 }]);
     const ctx = ctxTeste({ db });
     await iniciarFunil(ctx, 'hidrabene', pedidoYampi());
-    // registrado (o faturamento consulta qualquer pedido)…
-    const ins = db.achou(/INSERT INTO wa_upsell \(/)[0];
-    expect(ins).toBeTruthy();
-    expect(JSON.stringify(ins.values)).toContain('fora_do_fluxo');
-    // …mas NADA de disparo
-    expect(ctx.metaFake.enviadas.length).toBe(0);
     expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('cliente_ja_recebeu_oferta'))).toBe(true);
+  });
+
+  // Refinamento do Jorge: o 2º pedido AINDA recebe a confirmação, só sem oferta
+  // ("pra não quebrar a nossa copy" do 'aparece UMA única vez').
+  it('o 2º pedido dispara SIM, mas com oferta_id NULL (confirma sem oferta)', async () => {
+    const db = dbFunil();
+    db.on(/SELECT order_id FROM wa_upsell\s+WHERE store=\$1 AND disparo_status IN/, () => [{ order_id: 169610000 }]);
+    const ctx = ctxTeste({ db });
+    await iniciarFunil(ctx, 'hidrabene', pedidoYampi());
+    const ins = db.achou(/INSERT INTO wa_upsell \(/)[0];
+    const v = JSON.stringify(ins.values);
+    expect(v).toContain('aguardando_confirmacao'); // entra no funil normalmente
+    expect(v).toContain('fila');                   // e VAI disparar
+    expect(ins.values.includes(null)).toBe(true);  // com oferta_id nulo
   });
 
   it('cliente novo dispara normalmente', async () => {

@@ -120,6 +120,22 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
 
   // carimba a abertura do flow (mede leitura -> abertura no dashboard)
   await waupSet(ctx, ref.store, ref.orderId, { etapa: 'confirmado', abriu_flow_em: new Date().toISOString() });
+
+  // CONFIRMA SEM OFERTA (Jorge, 10/08): cliente que já recebeu a oferta hoje em
+  // outro pedido tem row com oferta_id NULL. Ele confere os dados e confirma —
+  // mas não vê o ticket, pra não queimar o "aparece UMA única vez".
+  if (row.oferta_id === null) {
+    await logEvento(ctx, ref.store, { evento: 'confirmado_sem_oferta', order_id: ref.orderId });
+    return {
+      screen: 'CONFIRMADO',
+      data: {
+        saudacao_ok: data.saudacao_ok ?? '',
+        oferta_resultado: 'sem_oferta',
+        ...(v8 ? { origem: 'sem_oferta' } : {}),
+      },
+    };
+  }
+
   if (v8) {
     const d = await dadosOfertaV8(ctx, row);
     return {

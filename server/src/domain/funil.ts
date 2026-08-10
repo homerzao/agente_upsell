@@ -10,6 +10,7 @@ import type { ChatwootService } from '../services/chatwoot.js';
 import { LABEL_UPSELL } from '../services/chatwoot.js';
 import { carbon, foneBr, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
 import { decidirDisparo, destinoMensagem, ehTransicaoParaPago, interpretarRespostaFlow } from './estados.js';
+import { COPIES_DEFAULT } from './copies.js';
 import { montarTemplateConfirma, montarTemplateTechSAC } from './template.js';
 import type { DisparosConfig, Oferta, RespostaFlow, WaUpsellRow } from './tipos.js';
 
@@ -207,6 +208,7 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   });
   // Registra TODO pedido pago (mesmo fora do filtro) — o faturamento consulta
   // qualquer pedido e sempre recebe resposta (closed/fora_do_fluxo).
+  let semOferta = false;
   // UMA OFERTA POR CLIENTE POR JANELA (pergunta do Jorge, 10/08): a chave da
   // tabela é (store, order_id), então dois PEDIDOS do mesmo cliente gerariam
   // duas ofertas — em 623 disparos aconteceu com 1 cliente real. Com ofertas
@@ -227,8 +229,11 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
         order_id: p.orderId,
         pedido_anterior: jaTem.rows[0].order_id,
       });
-      (decisao as { elegivel: boolean; motivo?: string }).elegivel = false;
-      (decisao as { elegivel: boolean; motivo?: string }).motivo = 'cliente_ja_recebeu_oferta';
+      // O pedido AINDA recebe a confirmação (todo pedido merece a sua), só sem
+      // oferta — repetir a oferta pro mesmo cliente queima a copy do "aparece
+      // UMA única vez". Pedido do Jorge, 10/08. Marcador: oferta_id = NULL numa
+      // row elegível; o flow lê isso e pula a tela do ticket.
+      semOferta = true;
     }
   }
   const ins = await ctx.db.query(
@@ -239,7 +244,10 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
       store, p.orderId, p.numero, p.fone, p.nome, p.cpf || null, p.email,
       decisao.elegivel ? 'open' : 'closed',
       decisao.elegivel ? 'aguardando_confirmacao' : 'fora_do_fluxo',
-      oferta?.id ?? null,
+      // oferta_id NULL numa row elegível = "confirma sem oferta": o cliente
+      // recebe a confirmação do pedido e pode corrigir dados, mas o flow pula
+      // a tela do ticket (ele já viu a oferta hoje, em outro pedido).
+      semOferta ? null : (oferta?.id ?? null),
       decisao.elegivel ? 'fila' : null,
       p.valorProdutos,
     ],
@@ -304,8 +312,14 @@ export async function processarFilaDisparo(ctx: FunilCtx): Promise<void> {
 
 export async function dispararTemplate(ctx: FunilCtx, row: WaUpsellRow): Promise<void> {
   const cfgd = await getDisparosConfig(ctx);
-  const oferta = await getOferta(ctx, row.oferta_id);
-  const copies = oferta?.copies ?? {};
+  // oferta_id NULL = "confirma sem oferta". NÃO cair no getOferta(null), que
+  // devolveria a oferta ativa e mandaria a ARTE DO CUPOM no header — cliente
+  // veria "+1 PROTETOR FPS 90" no topo e nenhuma oferta na tela.
+  const semOferta = row.oferta_id === null || row.oferta_id === undefined;
+  const oferta = semOferta ? null : await getOferta(ctx, row.oferta_id);
+  const copies: Record<string, string> = semOferta
+    ? { ...COPIES_DEFAULT, header_url: '', header_media_id: '' }
+    : (oferta?.copies ?? {});
   if (!ctx.cfg.METAWA_TOKEN || !ctx.cfg.METAWA_PHONE_ID) {
     await waupSet(ctx, row.store, row.order_id, { etapa: 'erro_disparo', disparo_status: 'erro' });
     await logEvento(ctx, row.store, { erro: 'disparo_sem_credenciais_meta', order_id: row.order_id });
