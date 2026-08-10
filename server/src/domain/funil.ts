@@ -813,15 +813,13 @@ export async function enviarPaginaPix(
   const fone = destino(ctx, cfgd.modo, row.customer_phone);
   const msg = renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link });
   try {
-    await ctx.meta.enviarTexto(fone, msg);
-    // Botão embaixo do link (reforço): se a Meta recusar o interactive, o
-    // link solto já chegou — loga e segue
-    await ctx.meta
-      .enviarCtaUrl(fone, renderCopy(copies.msg_pagina_pix_cta ?? COPIES_DEFAULT.msg_pagina_pix_cta, { nome }), 'ABRIR PÁGINA DO PIX', link)
-      .catch(async (e) => {
-        await logEvento(ctx, store, { erro: 'pagina_pix_cta_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 200) });
-      });
-    await espelhoNota(ctx, store, orderId, `🔗 Página do PIX enviada (link solto + botão): ${link}\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
+    // UMA bolha: corpo (texto + link) com o botão embaixo; se a Meta recusar
+    // o interactive, cai pra texto puro com o link (nunca fica sem nada)
+    await ctx.meta.enviarCtaUrl(fone, msg, 'ABRIR PÁGINA DO PIX', link).catch(async (e) => {
+      await logEvento(ctx, store, { erro: 'pagina_pix_cta_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 200) });
+      return ctx.meta.enviarTexto(fone, msg);
+    });
+    await espelhoNota(ctx, store, orderId, `🔗 Página do PIX enviada (link + botão na mesma mensagem): ${link}\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
     await logEvento(ctx, store, { evento: 'pagina_pix_enviada', order_id: orderId });
     return { ok: true, link };
   } catch (e) {
@@ -909,7 +907,11 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
         // Minutos REAIS até expirar, calculados AGORA (Jorge, 10/08: o "vence
         // em 3 minutos" fixo era da era do prazo anunciado de 10 — a página
         // mostra o cronômetro real, então a copy tem que bater com ele)
-        const minutosRest = Math.max(1, Math.ceil((new Date(r.pix_expira_em).getTime() - Date.now()) / 60000));
+        // Arredondado PRA BAIXO em múltiplo de 5 (Jorge, 10/08: "12 minutos"
+        // fica feio — "10" lê melhor; entregar MAIS tempo que o dito é ok,
+        // menos nunca). Abaixo de 5, vale o número exato.
+        const exatos = Math.max(1, Math.floor((new Date(r.pix_expira_em).getTime() - Date.now()) / 60000));
+        const minutosRest = exatos >= 5 ? Math.floor(exatos / 5) * 5 : exatos;
         // Página do PIX junto do lembrete (Jorge, 10/08): quem não pagou em 7
         // min muitas vezes é quem não CONSEGUIU copiar — o link resolve isso.
         const link = r.pix_pagina_token ? `${ctx.cfg.PUBLIC_URL}/pix/${r.pix_pagina_token}` : '';
@@ -923,19 +925,17 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
           link ? renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link, minutos_restantes: minutosRest }) : '',
         ].filter(Boolean);
         const msg = partes.join('\n\n');
-        await ctx.meta.enviarTexto(fone, msg).then(
-          async () => {
-            if (link) {
-              // Botão embaixo do link — reforço; falha do interactive não
-              // derruba o lembrete (o link solto já chegou)
-              await ctx.meta
-                .enviarCtaUrl(fone, renderCopy(copies.msg_pagina_pix_cta ?? COPIES_DEFAULT.msg_pagina_pix_cta, { nome }), 'ABRIR PÁGINA DO PIX', link)
-                .catch(async (e) => {
-                  await logEvento(ctx, r.store, { erro: 'pagina_pix_cta_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
-                });
-            }
-            await espelhoNota(ctx, r.store, r.order_id, `⏱️ Lembrete de PIX enviado${link ? ` com a página do PIX (${link})` : ''}.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
-          },
+        // UMA bolha só: corpo (lembrete + link no texto) com o botão embaixo
+        // (Jorge, 10/08: "pq nao faz link e botão na mesma msg?"). Se a Meta
+        // recusar o interactive — ou a row for antiga, sem token — vai texto puro.
+        const envio = link
+          ? ctx.meta.enviarCtaUrl(fone, msg, 'ABRIR PÁGINA DO PIX', link).catch(async (e) => {
+              await logEvento(ctx, r.store, { erro: 'pagina_pix_cta_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
+              return ctx.meta.enviarTexto(fone, msg);
+            })
+          : ctx.meta.enviarTexto(fone, msg);
+        await envio.then(
+          () => espelhoNota(ctx, r.store, r.order_id, `⏱️ Lembrete de PIX enviado${link ? ` com a página do PIX (${link}) e botão na mesma mensagem` : ''}.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg),
           async (e) => {
             await logEvento(ctx, r.store, { erro: 'lembrete_pix_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
           },
