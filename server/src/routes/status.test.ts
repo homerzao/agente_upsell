@@ -38,6 +38,11 @@ describe('contrato da API de status (faturamento — NÃO quebrar)', () => {
         pagarme_transaction_id: 'tran_abc',
         valor: '49.91',
         sku: '2133823',
+        // ADICIONADO em 10/08 (multi-oferta): nome do produto junto do SKU.
+        // Este toEqual é o guardião do contrato — ADICIONAR campo é seguro
+        // (integração ignora extras), REMOVER quebra o faturamento. Se este
+        // teste falhar por campo que SUMIU, é bug de verdade.
+        produto: null,
         quantidade: 1,
         pago_em: '2026-08-07T21:14:37.941Z',
       },
@@ -55,5 +60,28 @@ describe('contrato da API de status (faturamento — NÃO quebrar)', () => {
     const r: any = formatarStatus(1, { order_number: 'x', status: 'open', etapa: 'aguardando_confirmacao', atualizado_em: 'ts' }, null);
     expect(r.status).toBe('open');
     expect(r.pagamento).toBeNull();
+  });
+
+  // Jorge, 10/08: "como o sistema vai saber o produto lá?" — o nome do produto
+  // acompanha o SKU. Campo novo, nenhum removido: contrato segue compatível.
+  it('devolve o NOME do produto junto do sku, sem quebrar o contrato antigo', () => {
+    const r: any = formatarStatus(1, { order_number: 'X', status: 'closed', etapa: 'pago', atualizado_em: 'z' }, {
+      pagarme_charge_id: 'ch_1', pagarme_transaction_id: 'tr_1', valor: '19.91',
+      sku: '2046', produto: 'Protetor Solar Facial FPS 90 Toque Seco', quantidade: 1, pago_em: 'z',
+    });
+    expect(r.pagamento.sku).toBe('2046');
+    expect(r.pagamento.produto).toBe('Protetor Solar Facial FPS 90 Toque Seco');
+    // campos do contrato original intactos
+    for (const k of ['pagarme_charge_id', 'pagarme_transaction_id', 'valor', 'quantidade', 'pago_em']) {
+      expect(r.pagamento[k]).toBeDefined();
+    }
+  });
+
+  it('SKU sem oferta cadastrada: produto vem null, nunca quebra', () => {
+    const r: any = formatarStatus(1, { order_number: 'X', status: 'closed', etapa: 'pago', atualizado_em: 'z' }, {
+      pagarme_charge_id: 'ch_2', valor: '10.00', sku: 'SKU-DESCONHECIDO', quantidade: 1, pago_em: 'z',
+    });
+    expect(r.pagamento.produto).toBeNull();
+    expect(r.pagamento.sku).toBe('SKU-DESCONHECIDO');
   });
 });

@@ -22,6 +22,11 @@ export function formatarStatus(orderId: number, row: any | null, pagamento: any 
           pagarme_transaction_id: pagamento.pagarme_transaction_id,
           valor: Number(pagamento.valor).toFixed(2),
           sku: pagamento.sku,
+          // NOME do produto junto do SKU (Jorge, 10/08: "como o sistema vai
+          // saber o produto lá?"). Campo ADICIONADO, nenhum removido — quem já
+          // integrou continua funcionando. É informativo: a decisão de qual
+          // item lançar continua sendo pelo `sku`.
+          produto: pagamento.produto ?? null,
           quantidade: pagamento.quantidade,
           pago_em: pagamento.pago_em,
         }
@@ -40,9 +45,14 @@ export function statusRoutes(app: FastifyInstance, ctx: FunilCtx, auth: Auth): v
     const row = r.rows[0] ?? null;
     let pagamento: any = null;
     if (row) {
+      // O nome do produto vem da OFERTA que o cliente recebeu (join pelo SKU):
+      // é o mesmo texto que o painel mostra, então o dev confere de olho.
       const p = await ctx.db.query(
-        `SELECT pagarme_charge_id, pagarme_transaction_id, valor, sku, quantidade, pago_em
-         FROM wa_upsell_pagamentos WHERE store=$1 AND order_id=$2 ORDER BY id DESC LIMIT 1`,
+        `SELECT pg.pagarme_charge_id, pg.pagarme_transaction_id, pg.valor, pg.sku,
+                pg.quantidade, pg.pago_em, o.nome AS produto
+           FROM wa_upsell_pagamentos pg
+           LEFT JOIN ofertas o ON o.sku_yampi = pg.sku
+          WHERE pg.store=$1 AND pg.order_id=$2 ORDER BY pg.id DESC LIMIT 1`,
         [store, orderId],
       );
       pagamento = p.rows[0] ?? null;

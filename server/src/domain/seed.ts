@@ -34,6 +34,9 @@ export async function seedSandbox(db: Db): Promise<void> {
     [900000002, 'SANDBOX-RECUSOU', 'closed', 'recusado'],
     [900000003, 'SANDBOX-CORRIGIR', 'open', 'corrigir_sac'],
     [900000004, 'SANDBOX-PAGOU', 'closed', 'pago'],
+    // Multi-oferta (10/08): o dev do faturamento precisa de um caso com SKU
+    // DIFERENTE do kit, senão ele testa achando que o sku é sempre 2133823.
+    [900000005, 'SANDBOX-PAGOU-FPS90', 'closed', 'pago'],
   ];
   for (const [id, numero, st, et] of casos) {
     await db.query(
@@ -44,11 +47,20 @@ export async function seedSandbox(db: Db): Promise<void> {
       [id, numero, st, et],
     );
   }
+  // Este DELETE é o motivo de o caso do FPS 90 ter sumido em 10/08: ele roda a
+  // CADA boot e apagava tudo, mas só o pagamento do 900000004 era recriado.
+  // Todo caso pago do sandbox tem que ser recriado logo abaixo.
   await db.query(`DELETE FROM wa_upsell_pagamentos WHERE store='sandbox'`);
-  await db.query(
-    `INSERT INTO wa_upsell_pagamentos (store, order_id, pagarme_charge_id, pagarme_transaction_id, valor, sku, quantidade, pago_em, payload)
-     VALUES ('sandbox', 900000004, 'ch_SANDBOX0001', 'tran_SANDBOX0001', $1, $2, 1, now(), '{}')
-     ON CONFLICT (pagarme_charge_id) DO NOTHING`,
-    [OFERTA_DEFAULT.preco, OFERTA_DEFAULT.sku_yampi],
-  );
+  const pagos: Array<[number, string, string, number, string]> = [
+    [900000004, 'ch_SANDBOX0001', 'tran_SANDBOX0001', OFERTA_DEFAULT.preco, OFERTA_DEFAULT.sku_yampi],
+    [900000005, 'ch_SANDBOX_FPS90', 'tran_SANDBOX_FPS90', 19.91, '2046'],
+  ];
+  for (const [id, charge, tran, valor, sku] of pagos) {
+    await db.query(
+      `INSERT INTO wa_upsell_pagamentos (store, order_id, pagarme_charge_id, pagarme_transaction_id, valor, sku, quantidade, pago_em, payload)
+       VALUES ('sandbox', $1, $2, $3, $4, $5, 1, now(), '{}')
+       ON CONFLICT (pagarme_charge_id) DO NOTHING`,
+      [id, charge, tran, valor, sku],
+    );
+  }
 }
