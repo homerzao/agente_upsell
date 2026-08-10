@@ -3,7 +3,7 @@ import type { ToolDef } from '../../services/openai.js';
 import { mascararCpf, num, valorBr } from '../../lib/util.js';
 import { registrarCorrecao, type CamposCorrecao } from '../correcoes.js';
 import { encaminharHumano } from '../handoff.js';
-import { getRow, logEvento, normalizarPedidoYampi, reenviarPix, type FunilCtx } from '../funil.js';
+import { enviarPaginaPix, getRow, logEvento, normalizarPedidoYampi, reenviarPix, type FunilCtx } from '../funil.js';
 import type { WaUpsellRow } from '../tipos.js';
 
 export const TOOL_DEFS: ToolDef[] = [
@@ -28,6 +28,15 @@ export const TOOL_DEFS: ToolDef[] = [
     function: {
       name: 'reenviar_pix',
       description: 'Reenvia o código PIX (se ainda válido) ou gera um novo (se expirou) quando o cliente quer pagar a oferta.',
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'enviar_pagina_pix',
+      description:
+        'Envia o LINK da página segura do PIX (código inteiro na tela + botão que copia sozinho). Use quando o cliente NÃO CONSEGUE copiar/colar o código pelo WhatsApp: "código não dá", "dá erro ao colar", mandou print de erro. Exige PIX vivo — se expirou, chame reenviar_pix antes e depois esta.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -146,6 +155,10 @@ export async function executarTool(
     }
     case 'reenviar_pix': {
       const r = await reenviarPix(ctx, row.store, row.order_id);
+      return { handoff: false, resultado: r };
+    }
+    case 'enviar_pagina_pix': {
+      const r = await enviarPaginaPix(ctx, row.store, row.order_id);
       return { handoff: false, resultado: r };
     }
     case 'registrar_correcao': {

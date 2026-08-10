@@ -26,6 +26,19 @@ export function criarMeta(
   const enviarTexto = (to: string, body: string) =>
     waSendRaw({ to, type: 'text', text: { body } });
 
+  // Mensagem interativa com botão de LINK (cta_url) — abre a página do PIX.
+  // display_text tem limite de 20 chars na Meta; estourar derruba o envio.
+  const enviarCtaUrl = (to: string, body: string, botao: string, url: string) =>
+    waSendRaw({
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'cta_url',
+        body: { text: body },
+        action: { name: 'cta_url', parameters: { display_text: botao, url } },
+      },
+    });
+
   // Valida X-Hub-Signature-256 do webhook (quando META_APP_SECRET configurado).
   function validarAssinatura(rawBody: string, header: string | undefined): boolean {
     if (!cfg.META_APP_SECRET) return true; // sem secret configurado, não valida
@@ -51,5 +64,5 @@ export function criarMeta(
     return { bytes: await bin.arrayBuffer(), mime: j.mime_type ?? 'application/octet-stream' };
   }
 
-  return { waSendRaw, enviarTexto, validarAssinatura, baixarMidia };
+  return { waSendRaw, enviarTexto, enviarCtaUrl, validarAssinatura, baixarMidia };
 }

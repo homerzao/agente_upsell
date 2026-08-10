@@ -32,6 +32,8 @@ export type WaUpsellRow = {
   pix_codigo: string | null;
   pix_enviado_em: string | null;
   pix_expira_em: string | null;
+  // página pública do PIX (migration 016) — token opaco de 128 bits, estável
+  pix_pagina_token?: string | null;
   // ticket de produto do pedido (migration 014) — análise de conversão por faixa
   valor_produtos?: number | string | null;
   // marcos do funil (migration 012) — usados pelo dashboard e pelas travas

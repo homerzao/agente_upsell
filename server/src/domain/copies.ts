@@ -69,6 +69,13 @@ export const COPIES_DEFAULT: Record<string, string> = {
   msg_lembrete_pix:
     '⏱️ {{nome}}, seu código PIX vence em 3 minutos!\n\nÚltima chance de garantir o Kit Clareador por R$ 49,91 dentro do mesmo pedido, sem frete extra.\n\nÉ só colar aqui em cima no app do banco 💛',
 
+  // Página do PIX (10/08): mesmo link vai no lembrete dos 7 min e na tool
+  // enviar_pagina_pix (cliente que não consegue copiar o código na conversa)
+  msg_pagina_pix:
+    'Se o copia e cola daqui do WhatsApp não funcionar, {{nome}}, usa essa página segura — o código tá inteirinho lá, com um botão que copia sozinho:\n\n{{link}}',
+  // Corpo da mensagem-botão (cta_url) que sai logo abaixo do link solto
+  msg_pagina_pix_cta: 'Ou toca aqui embaixo que abre direto 👇',
+
   // Venceu de verdade (prazo real, maior que o anunciado). Tom POSITIVO: o
   // cliente comprou, então agradece e tranquiliza — não é hora de lamentar.
   msg_pix_expirado:

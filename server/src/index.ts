@@ -21,6 +21,7 @@ import { criarAuth } from './plugins/auth.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { flowRoutes } from './routes/flow.js';
 import { statusRoutes } from './routes/status.js';
+import { pixRoutes } from './routes/pix.js';
 import { adminRoutes } from './routes/admin.js';
 import { startSweeper } from './sweeper.js';
 import type { AgenteCtx } from './domain/agente/agente.js';
@@ -105,13 +106,14 @@ async function main() {
   flowRoutes(app, ctx); // data channel do flow (v6/v7)
   statusRoutes(app, ctx, auth);
   adminRoutes(app, ctx, auth);
+  pixRoutes(app, ctx); // página pública do PIX (token opaco na URL)
 
   // Painel buildado (produção): fallback SPA
   const publicDir = join(__dirname, '..', 'public');
   if (existsSync(publicDir)) {
     await app.register(fastifyStatic, { root: publicDir });
     app.setNotFoundHandler((req, reply) => {
-      if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/webhook') && !req.url.startsWith('/wa-upsell')) {
+      if (req.method === 'GET' && !req.url.startsWith('/api') && !req.url.startsWith('/webhook') && !req.url.startsWith('/wa-upsell') && !req.url.startsWith('/pix')) {
         return reply.sendFile('index.html');
       }
       return reply.code(404).send({ error: 'not found' });

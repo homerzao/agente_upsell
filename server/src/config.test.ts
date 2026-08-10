@@ -32,9 +32,10 @@ describe('loadConfig', () => {
     expect(cfg.WA_UPSELL_FLOW_ID).toBe('3548925675262517'); // v6 (data_exchange)
     // Validade real MAIOR que o prazo anunciado (decisão do Jorge, 09/08):
     // quem paga aos 11-12 min ainda entra; o fechamento vem depois dos dois.
-    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(15);
+    // 15→20 em 10/08 (página do PIX: o timer usa a validade REAL)
+    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(20);
     expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(10);
-    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(16);
+    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(21);
     expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_TTL_MIN);
     expect(cfg.WA_UPSELL_CLOSE_MIN).toBeGreaterThan(cfg.WA_UPSELL_PIX_TTL_MIN);
     // o lembrete tem que cair ANTES do prazo anunciado, senão não é lembrete

@@ -62,11 +62,14 @@ const schema = z.object({
   WA_UPSELL_HEADER_URL: z.string().default(''),
   // Validade REAL do PIX na Pagar.me. Fica maior que o prazo anunciado de
   // propósito (decisão do Jorge, 09/08): quem paga aos 11-12 min ainda entra.
-  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(15),
+  // 15→20 em 10/08 junto com a página do PIX (o timer da página usa o real).
+  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(20),
   // Prazo ANUNCIADO ao cliente na mensagem do aceite (cria urgência real)
   WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(10),
   // Fecha como expirado só DEPOIS da validade real (com folga de 1 min)
-  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(16),
+  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(21),
+  // Base pública dos links gerados (página do PIX: {PUBLIC_URL}/pix/{token})
+  PUBLIC_URL: z.string().default('https://upsell.techecom.com.br'),
   // Janela pré-aceite: fecha aguardando_confirmacao/confirmado/erro_disparo (ERP libera ~28min)
   WA_UPSELL_JANELA_MIN: z.coerce.number().default(25),
   // Auto-close SÓ do corrigir_sac (atendimento humano)

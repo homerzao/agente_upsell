@@ -1,6 +1,7 @@
 // Orquestrador do funil de upsell — porte 1:1 da lógica VALIDADA do agente_ecom,
 // com disparo controlado (piloto/amostra/rate/kill switch) e Chatwoot.
 // Todas as dependências entram via ctx (testável com fakes).
+import crypto from 'node:crypto';
 import type { Db } from '../db/pool.js';
 import type { Config } from '../config.js';
 import type { MetaService } from '../services/meta.js';
@@ -701,6 +702,9 @@ export async function aceitarOferta(ctx: FunilCtx, store: string, orderId: numbe
     pix_codigo: pix.codigo,
     pix_enviado_em: new Date().toISOString(),
     pix_expira_em: new Date(Date.now() + ctx.cfg.WA_UPSELL_PIX_TTL_MIN * 60 * 1000).toISOString(),
+    // Token da página do PIX: 128 bits opacos, ESTÁVEL pela vida da row —
+    // reenvio/PIX novo mantém o mesmo link, a página mostra o estado atual.
+    pix_pagina_token: row.pix_pagina_token ?? crypto.randomBytes(16).toString('base64url'),
   });
   if (!pix.codigo) {
     await logEvento(ctx, store, { erro: 'pix_sem_qr_code', order_id: orderId, charge_id: pix.chargeId });
@@ -767,6 +771,50 @@ export async function reenviarPix(
   const depois = await getRow(ctx, store, orderId);
   if (depois?.etapa === 'pix_enviado' && depois.pix_codigo) return { ok: true };
   return { ok: false, motivo: 'falha_ao_gerar_pix' };
+}
+
+/* ===== 5b. Página do PIX (link seguro com código inteiro + botão) ===== */
+
+// Envia o par "texto com link solto" + "mensagem-botão cta_url" (decisão do
+// Jorge, 10/08: "manda os 2, link solto e botão embaixo dele"). Usada pelo
+// lembrete dos 7 min e pela tool enviar_pagina_pix do agente — nasceu de 3
+// clientes num dia travadas em copiar o código certo dentro do WhatsApp.
+export async function enviarPaginaPix(
+  ctx: FunilCtx,
+  store: string,
+  orderId: number,
+): Promise<{ ok: boolean; motivo?: string; link?: string }> {
+  const row = await getRow(ctx, store, orderId);
+  if (!row) return { ok: false, motivo: 'pedido_fora_do_fluxo' };
+  if (row.etapa === 'pago') return { ok: false, motivo: 'ja_pago' };
+  const vivo =
+    row.etapa === 'pix_enviado' && row.pix_codigo && row.pix_expira_em && new Date(row.pix_expira_em) > new Date();
+  // A página nunca mostra código morto — sem PIX vivo o link não ajuda ninguém
+  if (!vivo) return { ok: false, motivo: 'pix_nao_esta_vivo_use_reenviar_pix_antes' };
+  if (!row.pix_pagina_token) return { ok: false, motivo: 'sem_token_de_pagina' };
+  const cfgd = await getDisparosConfig(ctx);
+  const oferta = await getOferta(ctx, row.oferta_id);
+  const copies = oferta?.copies ?? {};
+  const nome = primeiroNome(row.customer_name);
+  const link = `${ctx.cfg.PUBLIC_URL}/pix/${row.pix_pagina_token}`;
+  const fone = destino(ctx, cfgd.modo, row.customer_phone);
+  const msg = renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link });
+  try {
+    await ctx.meta.enviarTexto(fone, msg);
+    // Botão embaixo do link (reforço): se a Meta recusar o interactive, o
+    // link solto já chegou — loga e segue
+    await ctx.meta
+      .enviarCtaUrl(fone, renderCopy(copies.msg_pagina_pix_cta ?? COPIES_DEFAULT.msg_pagina_pix_cta, { nome }), 'ABRIR PÁGINA DO PIX', link)
+      .catch(async (e) => {
+        await logEvento(ctx, store, { erro: 'pagina_pix_cta_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 200) });
+      });
+    await espelhoNota(ctx, store, orderId, `🔗 Página do PIX enviada (link solto + botão): ${link}\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
+    await logEvento(ctx, store, { evento: 'pagina_pix_enviada', order_id: orderId });
+    return { ok: true, link };
+  } catch (e) {
+    await logEvento(ctx, store, { erro: 'pagina_pix_envio_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
+    return { ok: false, motivo: 'falha_no_envio' };
+  }
 }
 
 /* ===== 6. Pagamento confirmado (webhook Pagar.me) ===== */
@@ -837,19 +885,40 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
            AND lembrete_pix_em IS NULL AND pix_enviado_em IS NOT NULL
            AND pix_enviado_em < now() - ($1 || ' minutes')::interval
            AND (pix_expira_em IS NULL OR pix_expira_em > now())
-         RETURNING store, order_id, customer_phone, customer_name, oferta_id`,
+         RETURNING store, order_id, customer_phone, customer_name, oferta_id, pix_pagina_token`,
         [ctx.cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN],
       );
       for (const r of paraLembrar.rows) {
         const cfgd = await getDisparosConfig(ctx);
         const oferta = await getOferta(ctx, r.oferta_id);
-        const msg = renderCopy(
-          oferta?.copies?.msg_lembrete_pix ??
-            'Ó, {{nome}}: seu código PIX vence em pouquinho ⏱️\n\nÉ só colar no app do banco que o kit entra no seu pedido, sem frete extra.',
-          { nome: primeiroNome(r.customer_name) },
-        );
-        await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, r.customer_phone), msg).then(
-          () => espelhoNota(ctx, r.store, r.order_id, `⏱️ Lembrete de PIX enviado.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg),
+        const nome = primeiroNome(r.customer_name);
+        const fone = destino(ctx, cfgd.modo, r.customer_phone);
+        // Página do PIX junto do lembrete (Jorge, 10/08): quem não pagou em 7
+        // min muitas vezes é quem não CONSEGUIU copiar — o link resolve isso.
+        const link = r.pix_pagina_token ? `${ctx.cfg.PUBLIC_URL}/pix/${r.pix_pagina_token}` : '';
+        const copies = oferta?.copies ?? {};
+        const partes = [
+          renderCopy(
+            copies.msg_lembrete_pix ??
+              'Ó, {{nome}}: seu código PIX vence em pouquinho ⏱️\n\nÉ só colar no app do banco que o kit entra no seu pedido, sem frete extra.',
+            { nome },
+          ),
+          link ? renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link }) : '',
+        ].filter(Boolean);
+        const msg = partes.join('\n\n');
+        await ctx.meta.enviarTexto(fone, msg).then(
+          async () => {
+            if (link) {
+              // Botão embaixo do link — reforço; falha do interactive não
+              // derruba o lembrete (o link solto já chegou)
+              await ctx.meta
+                .enviarCtaUrl(fone, renderCopy(copies.msg_pagina_pix_cta ?? COPIES_DEFAULT.msg_pagina_pix_cta, { nome }), 'ABRIR PÁGINA DO PIX', link)
+                .catch(async (e) => {
+                  await logEvento(ctx, r.store, { erro: 'pagina_pix_cta_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
+                });
+            }
+            await espelhoNota(ctx, r.store, r.order_id, `⏱️ Lembrete de PIX enviado${link ? ` com a página do PIX (${link})` : ''}.\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
+          },
           async (e) => {
             await logEvento(ctx, r.store, { erro: 'lembrete_pix_falhou', order_id: r.order_id, detalhe: String((e as Error).message).slice(0, 200) });
           },
