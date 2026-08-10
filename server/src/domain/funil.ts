@@ -752,7 +752,12 @@ export async function reenviarPix(
   // PIX ainda vivo: reenvia o MESMO código (idempotente — nunca cobrar 2×)
   if (row.etapa === 'pix_enviado' && row.pix_codigo && row.pix_expira_em && new Date(row.pix_expira_em) > new Date()) {
     await ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), row.pix_codigo).then(
-      () => espelhoNota(ctx, store, orderId, '🤖 Reenviado (WhatsApp): mesmo código PIX (ainda válido).'),
+      async () => {
+        await espelhoNota(ctx, store, orderId, '🤖 Reenviado (WhatsApp): mesmo código PIX (ainda válido).');
+        // Evento de SUCESSO (10/08): sem ele o monitor não distingue "IA disse
+        // que reenviou e reenviou" de "disse e não reenviou" (alerta falso da Vanessa)
+        await logEvento(ctx, store, { evento: 'reenvio_pix', order_id: orderId, reaproveitado: true });
+      },
       async (e) => {
         await logEvento(ctx, store, { erro: 'reenvio_pix_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
       },
