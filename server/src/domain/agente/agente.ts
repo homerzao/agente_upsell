@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import type { OpenAIService, ChatMessage } from '../../services/openai.js';
 import { foneBr, mesmoFone, primeiroNome, soDigitos, valorBr } from '../../lib/util.js';
 import { LABEL_HUMANO, LABEL_UPSELL } from '../../services/chatwoot.js';
-import { getDisparosConfig, getOferta, getRow, logEvento, normalizarPedidoYampi, type FunilCtx } from '../funil.js';
+import { getDisparosConfig, getOferta, getRow, logEvento, normalizarPedidoYampi, reenviarPix, type FunilCtx } from '../funil.js';
 import { encaminharHumano } from '../handoff.js';
 import { montarSystemPrompt, type ContextoAgente } from './contexto.js';
 import { TOOL_DEFS, executarTool } from './tools.js';
@@ -267,6 +267,7 @@ export async function responderComIA(
     let totalCusto = 0;
     let houveHandoff = false;
     let respostaFinal: string | null = null;
+    const toolsUsadas = new Set<string>();
 
     for (let rodada = 0; rodada < MAX_RODADAS_TOOLS; rodada++) {
       const { message, usage } = await ctx.openai.chat(messages, TOOL_DEFS);
@@ -286,6 +287,7 @@ export async function responderComIA(
         }
         const { resultado, handoff } = await executarTool(ctx, row, conversa, tc.function.name, args);
         houveHandoff = houveHandoff || handoff;
+        toolsUsadas.add(tc.function.name);
         messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(resultado) });
       }
     }
@@ -342,6 +344,27 @@ export async function responderComIA(
         await encaminharHumano(ctx, conversa, 'resposta bloqueada: código PIX no texto', texto.slice(0, 200));
       } else {
         const texto = limpo || respostaFinal;
+        // PROMESSA VAZIA DE REENVIO (Maria, 10/08 18:58): a IA respondeu
+        // "Reenviei o código PIX certinho" SEM ter chamado reenviar_pix — a
+        // cliente ficou esperando um código que nunca vinha, com o PIX
+        // vencendo. A regra "verbo de ação só depois da ação" já estava no
+        // prompt e não segurou; prompt não é barreira. Aqui o sistema CUMPRE
+        // a promessa: se ela disse que reenviou, o reenvio acontece de fato.
+        if (/reenvi(ei|ado|amos)|mandei .{0,12}(novo )?c[óo]digo|gerei .{0,12}novo c[óo]digo/i.test(texto)
+            && !toolsUsadas.has('reenviar_pix')) {
+          await logEvento(ctx, 'hidrabene', {
+            evento: 'promessa_de_reenvio_cumprida',
+            conversa_id: conversa.id,
+            order_id: row.order_id,
+          });
+          await reenviarPix(ctx, row.store, row.order_id).catch(async (e) => {
+            await logEvento(ctx, 'hidrabene', {
+              erro: 'reenvio_automatico_falhou',
+              order_id: row.order_id,
+              detalhe: String((e as Error).message).slice(0, 200),
+            });
+          });
+        }
         await responder(texto);
         await ctx.db.query(
           `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)

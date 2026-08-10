@@ -343,6 +343,24 @@ describe('silêncio do agente', () => {
     expect(cw.enviadas[0].content).not.toContain('SEM_RESPOSTA');
   });
 
+  // Maria, 10/08 18:58: a IA disse "Reenviei o código PIX certinho" sem ter
+  // chamado a ferramenta — a cliente ficou esperando um código que nunca veio,
+  // com o PIX vencendo em 11 minutos. A regra já estava no prompt e não segurou.
+  it('promessa de reenvio sem a ferramenta: o sistema CUMPRE o reenvio', async () => {
+    const { db } = dbAgente();
+    const cw = chatwootFake();
+    const ctx: any = {
+      ...ctxTeste({ db }), chatwoot: cw,
+      openai: openaiQueCala('Poxa, Maria! Reenviei o código PIX certinho. Toque e SEGURE em cima dele.'),
+    };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'a chave não confere!');
+    // a resposta chega ao cliente normalmente…
+    expect(cw.enviadas.some((m: any) => String(m.content).includes('Reenviei'))).toBe(true);
+    // …e o reenvio ACONTECE de verdade, com o registro do salvamento
+    expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('promessa_de_reenvio_cumprida'))).toBe(true);
+  });
+
   // 360 de 10/08, conversa 377: a IA INVENTOU um código PIX no texto e o banco
   // recusou. Código PIX só sai pela ferramenta oficial — output do modelo com
   // cara de código é SUPRIMIDO e vira handoff. Trava de código, não de prompt.
