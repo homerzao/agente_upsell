@@ -757,6 +757,10 @@ export async function reenviarPix(
         // Evento de SUCESSO (10/08): sem ele o monitor não distingue "IA disse
         // que reenviou e reenviou" de "disse e não reenviou" (alerta falso da Vanessa)
         await logEvento(ctx, store, { evento: 'reenvio_pix', order_id: orderId, reaproveitado: true });
+        // Página SEMPRE junto do reenvio (Jorge, 10/08: "nessa 'não consegui'
+        // já deveria ir o link") — quem pede reenvio quase sempre não CONSEGUIU
+        // copiar; a página resolve o gesto. Best-effort: falha não derruba o reenvio.
+        await enviarPaginaPix(ctx, store, orderId).catch(() => {});
       },
       async (e) => {
         await logEvento(ctx, store, { erro: 'reenvio_pix_falhou', order_id: orderId, detalhe: String((e as Error).message).slice(0, 300) });
@@ -774,7 +778,11 @@ export async function reenviarPix(
   );
   await aceitarOferta(ctx, store, orderId);
   const depois = await getRow(ctx, store, orderId);
-  if (depois?.etapa === 'pix_enviado' && depois.pix_codigo) return { ok: true };
+  if (depois?.etapa === 'pix_enviado' && depois.pix_codigo) {
+    // Código NOVO também vai com a página (mesma decisão do Jorge, 10/08)
+    await enviarPaginaPix(ctx, store, orderId).catch(() => {});
+    return { ok: true };
+  }
   return { ok: false, motivo: 'falha_ao_gerar_pix' };
 }
 
