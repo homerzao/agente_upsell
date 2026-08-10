@@ -113,6 +113,19 @@ function chatwootFake() {
 }
 
 describe('processarMensagemCliente', () => {
+  // O auto-arquivamento (30min após voltar pro SAC) tira a conversa da lista
+  // principal. Se o cliente VOLTA A FALAR, ela tem que reaparecer — senão some
+  // da tela justamente na hora que alguém precisa ver (achado 10/08 de manhã:
+  // 6 conversas arquivadas com atividade nova, por sorte só mensagem de sistema).
+  it('cliente falando em conversa ARQUIVADA faz ela voltar pra lista', async () => {
+    const { db } = dbAgente();
+    const ctx: any = { ...ctxTeste({ db }), chatwoot: chatwootFake() };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'oi, e meu pedido?');
+    const desarq = db.achou(/UPDATE conversas SET arquivada_em=NULL/);
+    expect(desarq.length).toBe(1);
+    expect(desarq[0].text).toContain('arquivada_em IS NOT NULL'); // só mexe em quem estava arquivada
+  });
+
   it('conversa em modo humano: bot fica quieto (só loga a mensagem)', async () => {
     const { db, mensagens } = dbAgente({ conversaStatus: 'humano' });
     const cw = chatwootFake();

@@ -191,6 +191,14 @@ export async function processarMensagemCliente(
     'INSERT INTO mensagens_ia (conversa_id, direcao, texto, processada) VALUES ($1,$2,$3,$4)',
     [conversa.id, 'in', texto, !comDebounce],
   );
+  // Cliente FALOU: se a conversa já tinha sido arquivada (auto-arquivamento 30min
+  // após voltar pro SAC), ela DESARQUIVA. Arquivada some da lista principal — e
+  // ninguém pode sumir da tela justamente quando volta a falar. Só a fala do
+  // cliente desarquiva; despedida automática do sistema (out) não.
+  await ctx.db.query(
+    'UPDATE conversas SET arquivada_em=NULL, atualizado_em=now() WHERE id=$1 AND arquivada_em IS NOT NULL',
+    [conversa.id],
+  );
   if (conversa.status === 'humano') return; // humano assumiu: bot fica quieto
   if (comDebounce) return; // o sweeper responde quando o cliente parar de digitar
   await responderComIA(ctx, chatwootConversationId, fone, texto);
