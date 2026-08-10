@@ -129,6 +129,64 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* Conversão POR OFERTA: com multi-oferta, o número do funil geral esconde
+              qual oferta está puxando. Cada linha é uma oferta com o funil dela. */}
+          {Array.isArray(dados.por_oferta) && dados.por_oferta.length > 0 && (
+            <div className="painel">
+              <h2 style={{ marginTop: 0 }}>Conversão por oferta</h2>
+              <p className="sub" style={{ marginTop: 0 }}>
+                Cada oferta com o funil dela. A faixa mostra pra qual valor de pedido ela é escolhida.
+              </p>
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Oferta</th><th>Faixa</th>
+                      <th style={{ textAlign: 'right' }}>Disparos</th>
+                      <th style={{ textAlign: 'right' }}>Aceites</th>
+                      <th style={{ textAlign: 'right' }}>% aceite</th>
+                      <th style={{ textAlign: 'right' }}>Pagos</th>
+                      <th style={{ textAlign: 'right' }}>% pago</th>
+                      <th style={{ textAlign: 'right' }}>Receita</th>
+                      <th style={{ textAlign: 'right' }}>R$/disparo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dados.por_oferta.map((o: any) => (
+                      <tr key={o.id}>
+                        <td>
+                          {o.nome}{' '}
+                          <span className={`etiqueta ${o.ativo ? 'pago' : ''}`}>
+                            {o.ativo ? 'ativa' : 'inativa'}
+                          </span>
+                          <div className="sub" style={{ margin: 0, fontSize: 11.5 }}>
+                            SKU {o.sku_yampi} · {fmtBRL(o.preco)}
+                          </div>
+                        </td>
+                        <td className="sub" style={{ fontSize: 12 }}>
+                          {o.ticket_min === null && o.ticket_max === null
+                            ? 'todos'
+                            : `${o.ticket_min === null ? 'até' : `de ${fmtBRL(o.ticket_min)}`} ${o.ticket_max === null ? 'sem teto' : fmtBRL(o.ticket_max)}`}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>{o.disparos}</td>
+                        <td style={{ textAlign: 'right' }}>{o.aceites}</td>
+                        <td style={{ textAlign: 'right', color: 'var(--ouro)' }}>{o.taxa_aceite}%</td>
+                        <td style={{ textAlign: 'right' }}>{o.pagos}</td>
+                        <td style={{ textAlign: 'right', color: 'var(--verde)' }}>{o.taxa_pagamento}%</td>
+                        <td style={{ textAlign: 'right' }}>{fmtBRL(o.receita)}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtBRL(o.receita_por_disparo)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="sub" style={{ fontSize: 12, marginTop: 10 }}>
+                <b>R$/disparo</b> é o número que compara ofertas de preços diferentes: quanto cada
+                mensagem enviada rendeu. É por ele que se decide qual oferta escalar.
+              </p>
+            </div>
+          )}
+
           <div className="painel">
             <h2 style={{ marginTop: 0 }}>Por dia — disparos (cinza), aceites (dourado), pagos (verde)</h2>
             <div className="grafico">

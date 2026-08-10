@@ -207,6 +207,30 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   });
   // Registra TODO pedido pago (mesmo fora do filtro) — o faturamento consulta
   // qualquer pedido e sempre recebe resposta (closed/fora_do_fluxo).
+  // UMA OFERTA POR CLIENTE POR JANELA (pergunta do Jorge, 10/08): a chave da
+  // tabela é (store, order_id), então dois PEDIDOS do mesmo cliente gerariam
+  // duas ofertas — em 623 disparos aconteceu com 1 cliente real. Com ofertas
+  // diferentes por faixa ficaria pior (Kit num pedido, FPS 90 no outro).
+  // O pedido segue registrado (o faturamento consulta qualquer um), só não dispara.
+  if (decisao.elegivel && p.fone) {
+    const jaTem = await ctx.db.query(
+      `SELECT order_id FROM wa_upsell
+       WHERE store=$1 AND disparo_status IN ('fila','enviado','entregue')
+         AND right(customer_phone, 8) = right($2, 8)
+         AND criado_em > now() - ($3 || ' hours')::interval
+       LIMIT 1`,
+      [store, p.fone, ctx.cfg.WA_UPSELL_JANELA_CLIENTE_HORAS],
+    );
+    if (jaTem.rows.length) {
+      await logEvento(ctx, store, {
+        evento: 'cliente_ja_recebeu_oferta',
+        order_id: p.orderId,
+        pedido_anterior: jaTem.rows[0].order_id,
+      });
+      (decisao as { elegivel: boolean; motivo?: string }).elegivel = false;
+      (decisao as { elegivel: boolean; motivo?: string }).motivo = 'cliente_ja_recebeu_oferta';
+    }
+  }
   const ins = await ctx.db.query(
     `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status, valor_produtos)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)

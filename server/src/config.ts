@@ -77,6 +77,9 @@ const schema = z.object({
   // Idade máxima do pedido (horas) pra entrar no funil. Protege contra pedido
   // antigo sendo faturado agora parecer "acabou de pagar" (ver decidirDisparo).
   WA_UPSELL_IDADE_MAX_HORAS: z.coerce.number().default(24),
+  // UMA oferta por CLIENTE nesta janela: dois pedidos do mesmo fone não geram
+  // duas ofertas (com multi-oferta seria pior — Kit num pedido, FPS 90 no outro).
+  WA_UPSELL_JANELA_CLIENTE_HORAS: z.coerce.number().default(24),
   // Espera X segundos sem mensagem nova antes de responder, pra juntar as
   // mensagens picadas do cliente numa resposta só (0 = responde na hora).
   WA_UPSELL_DEBOUNCE_SEG: z.coerce.number().default(20),

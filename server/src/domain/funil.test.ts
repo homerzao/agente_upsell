@@ -120,6 +120,35 @@ describe('iniciarFunil (disparo controlado)', () => {
   });
 });
 
+// Pergunta do Jorge antes de soltar as 2 ofertas (10/08): "não tem risco do
+// mesmo cliente receber 2 ofertas né". Tinha — a chave é (store, order_id),
+// então 2 pedidos do mesmo fone davam 2 disparos. Aconteceu com 1 cliente real
+// em 623 disparos; com multi-oferta seria pior (Kit num pedido, FPS 90 no outro).
+describe('uma oferta por cliente na janela', () => {
+  it('cliente que já recebeu oferta nas últimas 24h NÃO dispara de novo', async () => {
+    const db = dbFunil();
+    db.on(/SELECT order_id FROM wa_upsell\s+WHERE store=\$1 AND disparo_status IN/, () => [{ order_id: 169610000 }]);
+    const ctx = ctxTeste({ db });
+    await iniciarFunil(ctx, 'hidrabene', pedidoYampi());
+    // registrado (o faturamento consulta qualquer pedido)…
+    const ins = db.achou(/INSERT INTO wa_upsell \(/)[0];
+    expect(ins).toBeTruthy();
+    expect(JSON.stringify(ins.values)).toContain('fora_do_fluxo');
+    // …mas NADA de disparo
+    expect(ctx.metaFake.enviadas.length).toBe(0);
+    expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('cliente_ja_recebeu_oferta'))).toBe(true);
+  });
+
+  it('cliente novo dispara normalmente', async () => {
+    const db = dbFunil();
+    db.on(/SELECT order_id FROM wa_upsell\s+WHERE store=\$1 AND disparo_status IN/, () => []);
+    const ctx = ctxTeste({ db });
+    await iniciarFunil(ctx, 'hidrabene', pedidoYampi());
+    const ins = db.achou(/INSERT INTO wa_upsell \(/)[0];
+    expect(JSON.stringify(ins.values)).toContain('aguardando_confirmacao');
+  });
+});
+
 describe('processarPedidoYampi (transição pra família paga)', () => {
   it('waiting_payment -> paid dispara', async () => {
     const db = dbFunil({ prevStatus: 'waiting_payment' });

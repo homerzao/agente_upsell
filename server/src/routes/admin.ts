@@ -214,6 +214,40 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           abrir_ate_aceitar_seg: funil.seg_abrir_ate_aceitar === null ? null : Number(funil.seg_abrir_ate_aceitar),
         },
       };
+      // CONVERSÃO POR OFERTA (Jorge, 10/08: "antes de ativar, ver conversão por
+      // oferta — depois vou criar mais oferta"). Cada linha é uma oferta com o
+      // funil dela: disparos → aceites → pagos, mais receita e ticket.
+      const porOferta = (
+        await db.query(
+          `SELECT o.id, o.nome, o.sku_yampi, o.preco::numeric AS preco, o.ativo,
+                  o.ticket_min::numeric AS ticket_min, o.ticket_max::numeric AS ticket_max,
+                  COUNT(*) FILTER (WHERE w.disparo_status IN ('enviado','entregue'))::int AS disparos,
+                  COUNT(*) FILTER (WHERE w.aceitou_em IS NOT NULL OR w.pix_charge_id IS NOT NULL
+                                     OR w.etapa IN ('pix_enviado','pago','expirado'))::int AS aceites,
+                  COUNT(*) FILTER (WHERE w.etapa='pago')::int AS pagos,
+                  COUNT(*) FILTER (WHERE w.etapa='recusado')::int AS recusas,
+                  COALESCE(SUM(p.valor),0)::numeric(12,2) AS receita
+             FROM ofertas o
+             LEFT JOIN wa_upsell w ON w.oferta_id = o.id AND w.store='hidrabene'
+               AND ($1::date IS NULL OR (w.criado_em AT TIME ZONE 'America/Sao_Paulo')::date >= $1::date)
+               AND ($2::date IS NULL OR (w.criado_em AT TIME ZONE 'America/Sao_Paulo')::date <= $2::date)
+             LEFT JOIN wa_upsell_pagamentos p ON p.store=w.store AND p.order_id=w.order_id
+            GROUP BY o.id, o.nome, o.sku_yampi, o.preco, o.ativo, o.ticket_min, o.ticket_max
+            ORDER BY o.prioridade DESC, o.id`,
+          [de, ate],
+        )
+      ).rows.map((r: any) => ({
+        ...r,
+        preco: Number(r.preco),
+        receita: Number(r.receita),
+        ticket_min: r.ticket_min === null ? null : Number(r.ticket_min),
+        ticket_max: r.ticket_max === null ? null : Number(r.ticket_max),
+        taxa_aceite: pct(Number(r.aceites), Number(r.disparos)),
+        taxa_pagamento: pct(Number(r.pagos), Number(r.aceites)),
+        taxa_pago_no_total: pct(Number(r.pagos), Number(r.disparos)),
+        receita_por_disparo: Number(r.disparos) > 0
+          ? Math.round((Number(r.receita) / Number(r.disparos)) * 100) / 100 : 0,
+      }));
       const receita = (
         await db.query(
           `SELECT COALESCE(SUM(valor),0)::numeric(12,2) AS receita FROM wa_upsell_pagamentos
@@ -244,6 +278,7 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           referencia_site: TAXA_UPSELL_SITE,
         },
         funil: f,
+        por_oferta: porOferta,
         diario,
       };
     });
