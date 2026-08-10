@@ -47,6 +47,20 @@ services:
       - traefik.http.routers.agenteupsell-http.middlewares=agenteupsell-redirect
       - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.permanent=true
+      # Domínio de CLIENTE da página do PIX (10/08: hidrabene.techecom.com.br).
+      # Router SEPARADO de propósito: cert próprio — se a emissão dele falhar
+      # (DNS ainda não aponta pra cá), o cert do domínio principal não é afetado.
+      # Link enviado é contrato: quando trocar de domínio, o antigo CONTINUA
+      # aqui — nunca remover um host que já foi parar no WhatsApp de cliente.
+      - traefik.http.routers.agenteupsellhb-https.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`)
+      - traefik.http.routers.agenteupsellhb-https.entrypoints=https
+      - traefik.http.routers.agenteupsellhb-https.tls=true
+      - traefik.http.routers.agenteupsellhb-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.agenteupsellhb-https.service=agenteupsell
+      - traefik.http.routers.agenteupsellhb-http.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`)
+      - traefik.http.routers.agenteupsellhb-http.entrypoints=http
+      - traefik.http.routers.agenteupsellhb-http.service=agenteupsell
+      - traefik.http.routers.agenteupsellhb-http.middlewares=agenteupsell-redirect
 
   postgres:
     image: postgres:16-alpine
