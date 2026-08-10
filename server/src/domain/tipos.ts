@@ -32,6 +32,8 @@ export type WaUpsellRow = {
   pix_codigo: string | null;
   pix_enviado_em: string | null;
   pix_expira_em: string | null;
+  // ticket de produto do pedido (migration 014) — análise de conversão por faixa
+  valor_produtos?: number | string | null;
   // marcos do funil (migration 012) — usados pelo dashboard e pelas travas
   disparado_em: string | null;
   entregue_em: string | null;
@@ -50,6 +52,13 @@ export type Oferta = {
   preco_de: number | null;
   ativo: boolean;
   copies: Record<string, string>;
+  // multi-oferta por faixa de ticket (migration 014): [ticket_min, ticket_max)
+  // sobre o valor de produto do pedido; NULL = lado aberto. Prioridade maior
+  // vence quando mais de uma faixa casa. sku_gatilho: reservado (fase 2).
+  ticket_min?: number | null;
+  ticket_max?: number | null;
+  prioridade?: number;
+  sku_gatilho?: string | null;
 };
 
 export type DisparosConfig = {

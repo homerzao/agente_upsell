@@ -1,22 +1,57 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fmtDataHora, get, post } from '../api';
 
+const NOME_CAMPO: Record<string, string> = {
+  nome: 'Nome', email: 'E-mail', street: 'Rua', number: 'Número', complement: 'Complemento',
+  neighborhood: 'Bairro', city: 'Cidade', state: 'UF', zip_code: 'CEP', receiver: 'Recebe',
+};
+
+// Achata {nome, email, endereco:{...}} numa lista de campos comparáveis.
+function achatar(o: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(o ?? {})) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') {
+      for (const [k2, v2] of Object.entries(v as object)) {
+        if (v2 !== null && v2 !== undefined) out[k2] = String(v2);
+      }
+    } else out[k] = String(v);
+  }
+  return out;
+}
+
+// Uma linha por campo, mudança em destaque — sem JSON, sem caça ao que mudou.
 function Diff({ antes, depois }: { antes: any; depois: any }) {
-  const fmt = (o: any) =>
-    Object.entries(o ?? {})
-      .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v, null, 2) : v}`)
-      .join('\n');
+  const a = achatar(antes);
+  const d = achatar(depois);
+  const campos = [...new Set([...Object.keys(a), ...Object.keys(d)])];
+  const mudados = campos.filter((c) => (a[c] ?? '') !== (d[c] ?? '') && d[c] !== undefined);
+  const iguais = campos.filter((c) => !mudados.includes(c));
   return (
-    <div className="diff">
-      <div className="antes">
-        <h4>ANTES (Yampi hoje)</h4>
-        <pre>{fmt(antes)}</pre>
-      </div>
-      <div className="depois">
-        <h4>DEPOIS (o que o cliente pediu)</h4>
-        <pre>{fmt(depois)}</pre>
-      </div>
-    </div>
+    <table className="diff-tabela">
+      <thead>
+        <tr><th>Campo</th><th>Está assim na Yampi</th><th></th><th>Cliente pediu</th></tr>
+      </thead>
+      <tbody>
+        {mudados.map((c) => (
+          <tr key={c} className="mudou">
+            <td className="campo">{NOME_CAMPO[c] ?? c}</td>
+            <td className="antes">{a[c] ?? <i>(vazio)</i>}</td>
+            <td className="seta">→</td>
+            <td className="depois"><b>{d[c]}</b></td>
+          </tr>
+        ))}
+        {iguais.filter((c) => a[c] !== undefined).map((c) => (
+          <tr key={c} className="igual">
+            <td className="campo">{NOME_CAMPO[c] ?? c}</td>
+            <td colSpan={3} className="mantem">{a[c]} <span className="sub">(não muda)</span></td>
+          </tr>
+        ))}
+        {!mudados.length && (
+          <tr><td colSpan={4} className="sub">Nada muda — correção vazia ou já aplicada.</td></tr>
+        )}
+      </tbody>
+    </table>
   );
 }
 

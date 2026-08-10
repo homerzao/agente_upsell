@@ -382,13 +382,22 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           preco_de: z.number().positive().nullable().optional(),
           ativo: z.boolean().optional(),
           copies: z.record(z.string()).optional(),
+          // multi-oferta (10/08): faixa de ticket [min, max) + prioridade.
+          // VÁRIAS ofertas ativas ao mesmo tempo é o normal agora — o antigo
+          // "ativar uma desativa as outras" saiu de cena.
+          ticket_min: z.number().nonnegative().nullable().optional(),
+          ticket_max: z.number().positive().nullable().optional(),
+          prioridade: z.number().int().optional(),
+          sku_gatilho: z.string().nullable().optional(),
         })
         .parse(req.body ?? {});
-      if (body.ativo) await db.query('UPDATE ofertas SET ativo=false');
       const r = await db.query(
-        `INSERT INTO ofertas (nome, sku_yampi, preco, preco_de, ativo, copies)
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-        [body.nome, body.sku_yampi, body.preco, body.preco_de ?? null, body.ativo ?? false, body.copies ?? {}],
+        `INSERT INTO ofertas (nome, sku_yampi, preco, preco_de, ativo, copies, ticket_min, ticket_max, prioridade, sku_gatilho)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [
+          body.nome, body.sku_yampi, body.preco, body.preco_de ?? null, body.ativo ?? false, body.copies ?? {},
+          body.ticket_min ?? null, body.ticket_max ?? null, body.prioridade ?? 0, body.sku_gatilho ?? null,
+        ],
       );
       await auditar(usuario(req), 'oferta_criada', `oferta:${r.rows[0].id}`, body);
       return r.rows[0];
@@ -404,6 +413,10 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
           preco_de: z.number().positive().nullable().optional(),
           ativo: z.boolean().optional(),
           copies: z.record(z.string()).optional(),
+          ticket_min: z.number().nonnegative().nullable().optional(),
+          ticket_max: z.number().positive().nullable().optional(),
+          prioridade: z.number().int().optional(),
+          sku_gatilho: z.string().nullable().optional(),
         })
         .parse(req.body ?? {});
       const atual = (await db.query('SELECT * FROM ofertas WHERE id=$1', [id])).rows[0];
@@ -412,12 +425,16 @@ export function adminRoutes(app: FastifyInstance, ctx: AgenteCtx, auth: Auth): v
       await db.query('INSERT INTO ofertas_historico (oferta_id, snapshot, usuario) VALUES ($1,$2,$3)', [
         id, atual, usuario(req),
       ]);
-      if (body.ativo) await db.query('UPDATE ofertas SET ativo=false WHERE id<>$1', [id]);
+      // multi-oferta: várias ativas convivem (a faixa+prioridade decide quem atende cada pedido)
       const novo = { ...atual, ...body };
       await db.query(
-        `UPDATE ofertas SET nome=$2, sku_yampi=$3, preco=$4, preco_de=$5, ativo=$6, copies=$7, atualizado_em=now()
+        `UPDATE ofertas SET nome=$2, sku_yampi=$3, preco=$4, preco_de=$5, ativo=$6, copies=$7,
+           ticket_min=$8, ticket_max=$9, prioridade=$10, sku_gatilho=$11, atualizado_em=now()
          WHERE id=$1`,
-        [id, novo.nome, novo.sku_yampi, novo.preco, novo.preco_de, novo.ativo, novo.copies],
+        [
+          id, novo.nome, novo.sku_yampi, novo.preco, novo.preco_de, novo.ativo, novo.copies,
+          novo.ticket_min ?? null, novo.ticket_max ?? null, novo.prioridade ?? 0, novo.sku_gatilho ?? null,
+        ],
       );
       await auditar(usuario(req), 'oferta_atualizada', `oferta:${id}`, body);
       return { ok: true };

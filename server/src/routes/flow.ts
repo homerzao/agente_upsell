@@ -7,11 +7,42 @@ import {
   decryptFlowRequest, encryptFlowResponse, type FlowPayload, type FlowRequestBody,
 } from '../services/flowCrypto.js';
 import { parseFlowToken } from '../domain/estados.js';
-import { getRow, logEvento, waupSet, type FunilCtx } from '../domain/funil.js';
+import { getOferta, getRow, logEvento, waupSet, type FunilCtx } from '../domain/funil.js';
+import { COPIES_DEFAULT } from '../domain/copies.js';
+import { primeiroNome, renderCopy } from '../lib/util.js';
+
+// Textos da oferta da row, renderizados — v8: a tela do TICKET é 100% dinâmica
+// (multi-oferta usa o MESMO flow), e a CONFIRMA resume o que a pessoa leva.
+async function dadosOfertaV8(ctx: FunilCtx, row: NonNullable<Awaited<ReturnType<typeof getRow>>>) {
+  const oferta = await getOferta(ctx, row.oferta_id);
+  const copies = { ...COPIES_DEFAULT, ...(oferta?.copies ?? {}) };
+  const vars = {
+    nome: primeiroNome(row.customer_name),
+    numero: String(row.order_number ?? ''),
+    produto: oferta?.nome ?? '',
+    preco: oferta ? oferta.preco.toFixed(2).replace('.', ',') : '',
+  };
+  const r = (chave: string) => renderCopy(copies[chave] ?? '', vars);
+  return {
+    titulo_ticket: r('flow_titulo_ticket'),
+    oferta_urgencia: r('flow_oferta_urgencia'),
+    oferta_intro: r('flow_oferta_intro'),
+    oferta_bullets: r('flow_oferta_bullets'),
+    oferta_extras: r('flow_oferta_extras'),
+    oferta_preco_linha: r('flow_oferta_preco_linha'),
+    oferta_prazo_linha: r('flow_oferta_prazo_linha'),
+    confirma_resumo: r('flow_confirma_resumo'),
+    confirma_sim: r('flow_confirma_sim'),
+    confirma_nao: r('flow_confirma_nao'),
+  };
+}
 
 // Decide a resposta do data_exchange — separado pra teste.
 export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): Promise<Record<string, unknown>> {
   const data = (payload.data ?? {}) as Record<string, unknown>;
+  // fv: versão do flow que está chamando. O v7 (sem fv) espera EXATAMENTE os
+  // campos antigos — devolver chave extra quebra a validação de schema da Meta.
+  const v8 = String(data.fv ?? '') === '8';
   const fallbackExpirada = {
     screen: 'CONFIRMADO',
     data: { saudacao_ok: data.saudacao_ok ?? '', oferta_resultado: 'expirada' },
@@ -29,8 +60,43 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
     });
     return fallbackExpirada;
   }
+
+  // v8, etapa 2: tocou "QUERO" no TICKET → double-check. Ainda NÃO é aceite —
+  // o aceite (e o PIX) só acontecem se confirmar o radio na tela seguinte.
+  // Este round-trip também é a MÉTRICA do clique acidental: quem chega aqui e
+  // não confirma era exatamente quem antes gerava PIX à toa.
+  if (v8 && data.acao === 'quero') {
+    await logEvento(ctx, ref.store, { evento: 'ticket_quero', order_id: ref.orderId });
+    const d = await dadosOfertaV8(ctx, row);
+    return {
+      screen: 'CONFIRMA',
+      data: {
+        confirma_resumo: d.confirma_resumo,
+        confirma_sim: d.confirma_sim,
+        confirma_nao: d.confirma_nao,
+        saudacao_ok: data.saudacao_ok ?? '',
+      },
+    };
+  }
+
   // carimba a abertura do flow (mede leitura -> abertura no dashboard)
   await waupSet(ctx, ref.store, ref.orderId, { etapa: 'confirmado', abriu_flow_em: new Date().toISOString() });
+  if (v8) {
+    const d = await dadosOfertaV8(ctx, row);
+    return {
+      screen: 'TICKET',
+      data: {
+        titulo_ticket: d.titulo_ticket,
+        oferta_urgencia: d.oferta_urgencia,
+        oferta_intro: d.oferta_intro,
+        oferta_bullets: d.oferta_bullets,
+        oferta_extras: d.oferta_extras,
+        oferta_preco_linha: d.oferta_preco_linha,
+        oferta_prazo_linha: d.oferta_prazo_linha,
+        saudacao_ok: data.saudacao_ok ?? '',
+      },
+    };
+  }
   return {
     screen: 'TICKET',
     data: { titulo_ticket: data.titulo_ticket ?? '', saudacao_ok: data.saudacao_ok ?? '' },

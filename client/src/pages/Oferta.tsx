@@ -10,6 +10,15 @@ const COPIES_ROTULOS: Record<string, string> = {
   flow_titulo_ticket: 'Flow — título do Ticket Dourado',
   flow_corpo_corrigir: 'Flow — corpo do corrigir',
   flow_saudacao_ok: 'Flow — confirmação ok',
+  flow_oferta_urgencia: 'Flow v8 — linha de urgência do ticket',
+  flow_oferta_intro: 'Flow v8 — introdução dos itens',
+  flow_oferta_bullets: 'Flow v8 — itens da oferta (bullets)',
+  flow_oferta_extras: 'Flow v8 — extras (frete etc.)',
+  flow_oferta_preco_linha: 'Flow v8 — linha do preço',
+  flow_oferta_prazo_linha: 'Flow v8 — linha do prazo do PIX',
+  flow_confirma_resumo: 'Flow v8 — resumo do double-check',
+  flow_confirma_sim: 'Flow v8 — opção SIM do double-check',
+  flow_confirma_nao: 'Flow v8 — opção NÃO do double-check',
   msg_aceite: 'Sessão — mensagem do aceite (antes do PIX)',
   msg_pix_instabilidade: 'Sessão — instabilidade do PIX',
   msg_corrigir: 'Sessão — pré-resposta do corrigir',
@@ -36,7 +45,14 @@ export default function Oferta() {
     });
 
   const selecionar = (o: any) => {
-    setSel({ ...o, preco: Number(o.preco), preco_de: o.preco_de === null ? null : Number(o.preco_de) });
+    setSel({
+      ...o,
+      preco: Number(o.preco),
+      preco_de: o.preco_de === null ? null : Number(o.preco_de),
+      ticket_min: o.ticket_min === null || o.ticket_min === undefined ? null : Number(o.ticket_min),
+      ticket_max: o.ticket_max === null || o.ticket_max === undefined ? null : Number(o.ticket_max),
+      prioridade: Number(o.prioridade ?? 0),
+    });
     get(`/api/ofertas/${o.id}/historico`).then((r) => setHistorico(r.historico)).catch(() => {});
   };
 
@@ -55,6 +71,9 @@ export default function Oferta() {
         preco_de: sel.preco_de === null || sel.preco_de === '' ? null : Number(sel.preco_de),
         ativo: sel.ativo,
         copies: sel.copies,
+        ticket_min: sel.ticket_min === null || sel.ticket_min === '' ? null : Number(sel.ticket_min),
+        ticket_max: sel.ticket_max === null || sel.ticket_max === '' ? null : Number(sel.ticket_max),
+        prioridade: Number(sel.prioridade ?? 0),
       });
       setMsg('✅ Oferta salva (versão anterior guardada no histórico)');
       await carregar();
@@ -106,6 +125,40 @@ export default function Oferta() {
               <input type="checkbox" checked={sel.ativo} onChange={(e) => setSel({ ...sel, ativo: e.target.checked })} />
               <span />
             </label>
+          </div>
+        </div>
+        {/* multi-oferta por faixa de ticket: valor de PRODUTO do pedido (subtotal − desconto, sem frete) */}
+        <div className="linha" style={{ marginTop: 10 }}>
+          <div className="campo">
+            <label>Ticket de (R$)</label>
+            <input
+              type="number" step="0.01" placeholder="sem mínimo"
+              value={sel.ticket_min ?? ''}
+              onChange={(e) => setSel({ ...sel, ticket_min: e.target.value })}
+              style={{ width: 130 }}
+            />
+          </div>
+          <div className="campo">
+            <label>até (R$, exclusivo)</label>
+            <input
+              type="number" step="0.01" placeholder="sem teto"
+              value={sel.ticket_max ?? ''}
+              onChange={(e) => setSel({ ...sel, ticket_max: e.target.value })}
+              style={{ width: 130 }}
+            />
+          </div>
+          <div className="campo">
+            <label>Prioridade</label>
+            <input
+              type="number" step="1"
+              value={sel.prioridade ?? 0}
+              onChange={(e) => setSel({ ...sel, prioridade: e.target.value })}
+              style={{ width: 90 }}
+            />
+          </div>
+          <div className="sub" style={{ alignSelf: 'flex-end', paddingBottom: 6 }}>
+            O pedido entra na oferta cuja faixa contém o valor de produto (subtotal − desconto, sem frete).
+            Faixa vazia = pega tudo. Se duas faixas casam, a de MAIOR prioridade vence.
           </div>
         </div>
       </div>

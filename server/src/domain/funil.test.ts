@@ -38,6 +38,24 @@ describe('normalizarPedidoYampi', () => {
     expect(p.cpf).toBe('04686204194');
     expect(p.endereco).toBe('Rua A, 10, Centro, Belém/PA, CEP 66000-000');
   });
+
+  // Régua das faixas de oferta (10/08): produto − desconto, SEM frete
+  it('valorProdutos = value_products − value_discount (frete fora)', () => {
+    const p = normalizarPedidoYampi({
+      ...pedidoYampi(), value_products: '45.90', value_discount: '5.00', value_shipment: '12.90',
+    });
+    expect(p.valorProdutos).toBeCloseTo(40.9);
+  });
+
+  it('valorProdutos: payload sem os campos → null (cai na oferta geral, nunca trava)', () => {
+    const p = normalizarPedidoYampi(pedidoYampi());
+    expect(p.valorProdutos).toBeNull();
+  });
+
+  it('valorProdutos nunca fica negativo (desconto maior que produto)', () => {
+    const p = normalizarPedidoYampi({ ...pedidoYampi(), value_products: 10, value_discount: 25 });
+    expect(p.valorProdutos).toBe(0);
+  });
 });
 
 function dbFunil(over: {

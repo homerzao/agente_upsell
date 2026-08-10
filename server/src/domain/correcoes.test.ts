@@ -174,6 +174,38 @@ describe('registrarCorrecao', () => {
     expect(body.name).toBe('Katia Regina Duarte da Silva'); // os três coerentes
   });
 
+  // Regra do Jorge (10/08): cidade/UF/CEP mudam o CUSTO DO FRETE já cobrado —
+  // proibido corrigir por aqui, em qualquer combinação. Trava no CÓDIGO, não
+  // só no prompt.
+  it('PROIBIDO: cidade, UF ou CEP → recusa sem tocar em nada', async () => {
+    const { db, correcoes } = dbCorrecao();
+    const yampi = yampiCorrecao();
+    const ctx = ctxTeste({ db, yampi: yampi as any });
+    for (const endereco of [
+      { city: 'São Paulo' },
+      { state: 'SP' },
+      { zip_code: '01000000' },
+      { street: 'Rua Nova', city: 'Outra Cidade' }, // misturado também cai
+    ]) {
+      const r = await registrarCorrecao(ctx, 'hidrabene', 169610420, { endereco });
+      expect(r.ok).toBe(false);
+      expect(r.erro).toBe('correcao_proibida_frete');
+      expect(r.detalhe).toContain('frete');
+    }
+    expect(correcoes.length).toBe(0); // nada registrado
+    expect(yampi.puts.length).toBe(0); // nada na Yampi
+  });
+
+  it('permitido continua permitido: rua/número/complemento/bairro/destinatário', async () => {
+    const { db, correcoes } = dbCorrecao();
+    const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });
+    const r = await registrarCorrecao(ctx, 'hidrabene', 169610420, {
+      endereco: { street: 'Rua Nova', number: '99', neighborhood: 'Centro', receiver: 'Maria S.' },
+    });
+    expect(r.ok).toBe(true);
+    expect(correcoes.length).toBe(1);
+  });
+
   it('sem campos: erro', async () => {
     const { db } = dbCorrecao();
     const ctx = ctxTeste({ db, yampi: yampiCorrecao() as any });

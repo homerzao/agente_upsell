@@ -59,7 +59,7 @@ export async function registrarCorrecao(
   store: string,
   orderId: number,
   campos: CamposCorrecao,
-): Promise<{ ok: boolean; correcaoId?: number; erro?: string }> {
+): Promise<{ ok: boolean; correcaoId?: number; erro?: string; detalhe?: string }> {
   const row = await getRow(ctx, store, orderId);
   if (!row) return { ok: false, erro: 'pedido fora do fluxo' };
   if (!campos.nome && !campos.email && !campos.endereco) return { ok: false, erro: 'nenhum campo para corrigir' };
@@ -106,6 +106,24 @@ export async function registrarCorrecao(
   }
 
   if (campos.endereco) {
+    // PROIBIDO alterar cidade, UF ou CEP (regra do Jorge, 09/08): esses campos
+    // mudam o CUSTO DO FRETE já cobrado. A trava é aqui no código — o prompt
+    // também proíbe, mas prompt não é barreira. A IA recebe o motivo e deve
+    // avisar o cliente + encaminhar ao humano.
+    const proibidos = ['city', 'state', 'uf', 'zip_code', 'cep', 'cidade', 'estado'] as const;
+    const tentou = proibidos.filter((k) => {
+      const v = (campos.endereco as Record<string, unknown>)[k];
+      return v !== undefined && v !== null && String(v).trim() !== '';
+    });
+    if (tentou.length) {
+      return {
+        ok: false,
+        erro: 'correcao_proibida_frete',
+        detalhe:
+          `Alterar ${tentou.join('/')} é proibido: muda o custo do frete do pedido. ` +
+          'Avise o cliente que essa alteração não pode ser feita por aqui e encaminhe ao time humano.',
+      };
+    }
     let enderecos: any[];
     try {
       enderecos = await ctx.yampi.getOrderAddresses(orderId);

@@ -15,6 +15,20 @@ export const COPIES_DEFAULT: Record<string, string> = {
   flow_corpo_corrigir: 'Sem problema, {{nome}} — nosso time vai seguir com o atendimento por aqui no WhatsApp pra ajustar o que precisar, antes do envio.',
   flow_saudacao_ok: 'Tudo certo, {{nome}}! ✅',
 
+  // ===== Flow v8: tela do TICKET 100% dinâmica (multi-oferta) + tela de
+  // CONFIRMAÇÃO (double-check antes de gerar o PIX). Os defaults reproduzem o
+  // texto do Kit que estava CRAVADO no JSON do v7; a oferta nova (faixa < R$50)
+  // define os dela nos copies próprios.
+  flow_oferta_urgencia: '🚨 Essa oferta aparece UMA única vez, aqui nesta tela. Fechou sem pegar? Ela some pra sempre.',
+  flow_oferta_intro: 'O que entra no seu pedido quando você toca no botão dourado: 👇',
+  flow_oferta_bullets: '✅ Protetor Facial FPS 70 Clareador 50g\n✅ Sérum Multicorretivo Clareador 30ml\n✅ Sabonete Facial de Limpeza Profunda 120ml',
+  flow_oferta_extras: '🚀 Frete prioritário: seu pedido fura a fila e sai na frente\n📦 Frete incluso: vai tudo junto, sem pagar nada a mais',
+  flow_oferta_preco_linha: '💰 Separados, os 3 custam R$ 149,90. No Ticket Dourado: R$ 49,91.',
+  flow_oferta_prazo_linha: '⏱️ Seu PIX chega aqui na conversa e vale 5 minutos. Passou, já era, a oferta não volta.',
+  flow_confirma_resumo: 'Você leva o *Kit Clareador completo* por *R$ 49,91* — entra no MESMO pedido #{{numero}}, sem nenhum frete a mais.\n\nAo confirmar, seu código PIX chega aqui na conversa.',
+  flow_confirma_sim: '✅ Sim — gerar meu código PIX agora',
+  flow_confirma_nao: '❌ Pensei melhor, não quero a oferta',
+
   // Msg 1 do aceite: sai NA HORA (resposta instantânea), ANTES de criar o PIX.
   msg_aceite:
     '🏆 Ticket Dourado garantido, {{nome}}!\n\nSeu Kit Clareador completo por R$ {{preco}} entra no pedido assim que o PIX for pago.\n\n📦 Vai tudo junto no MESMO frete, sem pagar nada a mais de envio — e com *frete prioritário*: seu pedido fura a fila e sai na frente. 🚀\n\n⏱️ O código vale por {{minutos}} minutos. Depois disso ele expira e a oferta não volta.\n\nCopia o código PIX da próxima mensagem 👇',

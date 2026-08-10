@@ -91,6 +91,27 @@ export async function getOferta(ctx: FunilCtx, ofertaId?: number | null): Promis
   return { ...row, preco: Number(row.preco), preco_de: row.preco_de === null ? null : Number(row.preco_de) };
 }
 
+// Multi-oferta por faixa de ticket (10/08): escolhe a oferta ativa cuja faixa
+// [ticket_min, ticket_max) contém o valor de PRODUTO do pedido (subtotal −
+// desconto, sem frete). NULL = lado aberto; empate resolve por prioridade
+// (maior vence), então a oferta "geral" (faixa toda NULL, prioridade 0)
+// convive com faixas específicas por cima dela.
+export async function escolherOferta(ctx: FunilCtx, valorProdutos: number | null): Promise<Oferta | null> {
+  // Sem ticket calculável (payload sem os campos de valor): cai na oferta geral,
+  // que é o comportamento de sempre — nunca deixar de disparar por dado faltando.
+  const v = valorProdutos;
+  const r = await ctx.db.query(
+    `SELECT * FROM ofertas WHERE ativo
+       AND ($1::numeric IS NULL OR ticket_min IS NULL OR $1::numeric >= ticket_min)
+       AND ($1::numeric IS NULL OR ticket_max IS NULL OR $1::numeric < ticket_max)
+     ORDER BY prioridade DESC, atualizado_em DESC LIMIT 1`,
+    [v],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+  return { ...row, preco: Number(row.preco), preco_de: row.preco_de === null ? null : Number(row.preco_de) };
+}
+
 // Dados normalizados de um pedido Yampi (webhook ou GET) — puro, coberto por teste.
 export function normalizarPedidoYampi(o: any): {
   orderId: number;
@@ -103,6 +124,7 @@ export function normalizarPedidoYampi(o: any): {
   email: string | null;
   endereco: string;
   customerId: number | null;
+  valorProdutos: number | null;
 } {
   const status = o.status?.data?.alias ?? o.status_alias ?? (typeof o.status === 'string' ? o.status : null);
   const cust = o.customer?.data ?? o.customer ?? {};
@@ -122,6 +144,13 @@ export function normalizarPedidoYampi(o: any): {
   const pagamentos = o.payments?.data ?? o.payments ?? [];
   const metodo = (Array.isArray(pagamentos) ? pagamentos[0] : null)?.alias
     ?? o.payment?.data?.alias ?? o.payment?.alias ?? null;
+  // Ticket de PRODUTO = produtos − desconto, SEM frete (régua das faixas de
+  // oferta, definição do Jorge 10/08). Payload sem os campos → null, e a
+  // escolha de oferta cai na geral em vez de travar o disparo.
+  const num = (x: unknown) => (x === null || x === undefined || x === '' ? null : Number(x));
+  const vProd = num(o.value_products);
+  const vDesc = num(o.value_discount) ?? 0;
+  const valorProdutos = vProd === null || Number.isNaN(vProd) ? null : Math.max(0, vProd - vDesc);
   return {
     orderId: Number(o.id),
     numero: String(o.number ?? ''),
@@ -133,6 +162,7 @@ export function normalizarPedidoYampi(o: any): {
     email: cust.email ?? null,
     endereco,
     customerId: cust.id ?? null,
+    valorProdutos,
   };
 }
 
@@ -165,7 +195,8 @@ export async function processarPedidoYampi(ctx: FunilCtx, store: string, o: any)
 export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promise<void> {
   const p = normalizarPedidoYampi(o);
   const cfgd = await getDisparosConfig(ctx);
-  const oferta = await getOferta(ctx);
+  // Oferta escolhida pela FAIXA de ticket do pedido (produtos − desconto, sem frete)
+  const oferta = await escolherOferta(ctx, p.valorProdutos);
   // Idade do pedido pelo created_at (a Yampi não manda paid_at no webhook)
   const criadoEm = carbon(o.created_at);
   const idadeHoras = criadoEm ? (Date.now() - new Date(criadoEm).getTime()) / 3_600_000 : null;
@@ -177,8 +208,8 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
   // Registra TODO pedido pago (mesmo fora do filtro) — o faturamento consulta
   // qualquer pedido e sempre recebe resposta (closed/fora_do_fluxo).
   const ins = await ctx.db.query(
-    `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status, valor_produtos)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (store, order_id) DO NOTHING RETURNING order_id`,
     [
       store, p.orderId, p.numero, p.fone, p.nome, p.cpf || null, p.email,
@@ -186,6 +217,7 @@ export async function iniciarFunil(ctx: FunilCtx, store: string, o: any): Promis
       decisao.elegivel ? 'aguardando_confirmacao' : 'fora_do_fluxo',
       oferta?.id ?? null,
       decisao.elegivel ? 'fila' : null,
+      p.valorProdutos,
     ],
   );
   if (!ins.rows.length) return; // já iniciado (nunca re-dispara)
@@ -864,6 +896,18 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
          LIMIT 20`,
         [ctx.cfg.WA_UPSELL_LIBERA_CONVERSA_MIN],
       );
+      // Conversa devolvida ao SAC há 30+ min e sem correção pendente não é mais
+      // trabalho de ninguém aqui: arquiva sozinha (pedido do Jorge 09/08 — a lista
+      // principal deve mostrar só o que está de fato aberto). A aba Arquivadas
+      // continua dando acesso a tudo.
+      await ctx.db.query(
+        `UPDATE conversas SET arquivada_em=now()
+         WHERE arquivada_em IS NULL AND liberada_em IS NOT NULL
+           AND liberada_em < now() - interval '30 minutes'
+           AND NOT EXISTS (SELECT 1 FROM correcoes k
+                           WHERE k.wa_upsell_id = conversas.wa_upsell_id
+                             AND k.status='aguardando_aprovacao')`,
+      );
       for (const c of paraLiberar.rows) {
         try {
           // Sem id interno (disparo caiu no fallback pela Meta) não dá pra chamar
@@ -926,22 +970,23 @@ export async function dispararManual(ctx: FunilCtx, store: string, orderId: numb
     return { ok: false, erro: `pedido não encontrado na Yampi: ${String((e as Error).message).slice(0, 200)}` };
   }
   const p = normalizarPedidoYampi(o);
-  const oferta = await getOferta(ctx);
-  if (!oferta) return { ok: false, erro: 'nenhuma oferta ativa' };
+  const oferta = await escolherOferta(ctx, p.valorProdutos);
+  if (!oferta) return { ok: false, erro: 'nenhuma oferta ativa para a faixa deste pedido' };
   // 'pago' é estado final: o upsert abaixo o protege, mas sem esta guarda o
   // template sairia mesmo assim, oferecendo algo que o cliente já comprou.
   const jaExiste = await getRow(ctx, store, p.orderId);
   if (jaExiste?.etapa === 'pago') return { ok: false, erro: 'pedido já pagou a oferta' };
   await ctx.db.query(
-    `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'open','aguardando_confirmacao',$8,'fila')
+    `INSERT INTO wa_upsell (store, order_id, order_number, customer_phone, customer_name, customer_cpf, customer_email, status, etapa, oferta_id, disparo_status, valor_produtos)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'open','aguardando_confirmacao',$8,'fila',$9)
      ON CONFLICT (store, order_id) DO UPDATE SET
        status='open', etapa='aguardando_confirmacao', disparo_status='fila',
        template_msg_id=NULL, oferta_id=EXCLUDED.oferta_id,
        customer_cpf=EXCLUDED.customer_cpf, customer_email=EXCLUDED.customer_email,
+       valor_produtos=EXCLUDED.valor_produtos,
        criado_em=now(), atualizado_em=now()
      WHERE wa_upsell.etapa <> 'pago'`, // GOTCHA 20: reset de criado_em; 'pago' é estado final
-    [store, p.orderId, p.numero, p.fone, p.nome, p.cpf || null, p.email, oferta.id],
+    [store, p.orderId, p.numero, p.fone, p.nome, p.cpf || null, p.email, oferta.id, p.valorProdutos],
   );
   await ctx.db.query(
     `INSERT INTO pedidos_status (store, order_id, status, payload, atualizado_em)

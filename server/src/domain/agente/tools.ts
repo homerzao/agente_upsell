@@ -36,7 +36,8 @@ export const TOOL_DEFS: ToolDef[] = [
     function: {
       name: 'registrar_correcao',
       description:
-        'Registra uma correção de dados JÁ CONFIRMADA com o cliente. Vai para aprovação humana antes de ser aplicada. Informe apenas os campos que mudam.',
+        'Registra uma correção de dados JÁ CONFIRMADA com o cliente. Vai para aprovação humana antes de ser aplicada. Informe apenas os campos que mudam. ' +
+        'PROIBIDO corrigir cidade, UF ou CEP (muda o frete): nesses casos NÃO chame esta ferramenta — avise o cliente e use encaminhar_humano.',
       parameters: {
         type: 'object',
         properties: {
@@ -44,15 +45,12 @@ export const TOOL_DEFS: ToolDef[] = [
           email: { type: 'string', description: 'E-mail corrigido' },
           endereco: {
             type: 'object',
-            description: 'Somente os campos do endereço que mudam',
+            description: 'Somente os campos do endereço que mudam. Cidade/UF/CEP são PROIBIDOS (alteram o frete).',
             properties: {
-              zip_code: { type: 'string', description: 'CEP (só dígitos)' },
               street: { type: 'string' },
               number: { type: 'string' },
               complement: { type: 'string' },
               neighborhood: { type: 'string' },
-              city: { type: 'string' },
-              state: { type: 'string', description: 'UF, ex.: SP' },
               receiver: { type: 'string', description: 'Nome de quem recebe' },
             },
           },
