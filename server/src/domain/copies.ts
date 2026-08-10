@@ -29,8 +29,11 @@ export const COPIES_DEFAULT: Record<string, string> = {
   // GANHOU e quanto economiza, estilo Queima de Inverno. {{economia}} e
   // {{desconto_pct}} são CALCULADOS pelo servidor a partir de preco/preco_de —
   // oferta nova já nasce com a conta certa.
+  // ⚠️ Texto de tela de FLOW não renderiza *negrito* (asterisco sai literal!):
+  // ênfase aqui é CAIXA ALTA + emoji. Nas mensagens de sessão (msg_*) o
+  // asterisco funciona normal.
   flow_confirma_titulo: '🏆 OFERTA ÚNICA DESBLOQUEADA!',
-  flow_confirma_resumo: '{{nome}}, você garantiu o que ninguém mais vê:\n\n✨ *Kit Clareador completo* — 3 produtos que custam *R$ {{preco_de}}* no site — por apenas *R$ {{preco}}*.\n\n💰 Economia de *R$ {{economia}}* ({{desconto_pct}}% de desconto), dentro do MESMO pedido #{{numero}}, sem pagar um centavo a mais de frete.',
+  flow_confirma_resumo: 'Boa, {{nome}}! 🥳 Você pegou o que 99% nem chega a ver:\n\n✨ Kit Clareador COMPLETO (3 produtos)\n💸 De R$ {{preco_de}} por R$ {{preco}}\n💰 Você economiza R$ {{economia}} — {{desconto_pct}}% OFF 🔥\n\n📦 Cai direto no pedido #{{numero}} que você acabou de fazer\n🚚 Frete? Nadinha a mais — vai tudo junto',
 
   // Msg 1 do aceite: sai NA HORA (resposta instantânea), ANTES de criar o PIX.
   msg_aceite:

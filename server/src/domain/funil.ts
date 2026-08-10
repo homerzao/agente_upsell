@@ -498,6 +498,13 @@ export async function registrarResposta(ctx: FunilCtx, store: string, orderId: n
   // NUNCA sobrescreve um pagamento já confirmado.
   const atual = await getRow(ctx, store, orderId);
   if (atual?.etapa === 'pago') return;
+  // Metrificação do v8 (Jorge, 10/08): de ONDE veio a saída — 'ticket' (Pular na
+  // tela da oferta) vs 'confirma' (Sair no double-check). Sem isso as duas
+  // recusas chegam idênticas e o % de desistência do double-check não existe.
+  const origem = (resposta as Record<string, unknown>).origem;
+  if (origem) {
+    await logEvento(ctx, store, { evento: 'flow_saida', order_id: orderId, origem: String(origem), acao });
+  }
   if (acao === 'expirou_flow') {
     // Flow v6 fechou com oferta='expirada': o SERVIDOR já ocultou o ticket —
     // a row já está closed com a etapa certa; só a despedida sai.

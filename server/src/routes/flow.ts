@@ -49,9 +49,15 @@ export async function decidirDataExchange(ctx: FunilCtx, payload: FlowPayload): 
   // fv: versão do flow que está chamando. O v7 (sem fv) espera EXATAMENTE os
   // campos antigos — devolver chave extra quebra a validação de schema da Meta.
   const v8 = String(data.fv ?? '') === '8';
+  // v8: CONFIRMADO declara `origem` (metrificação de onde a pessoa saiu);
+  // v7 NÃO — mandar chave extra pro flow antigo quebra o schema da Meta.
   const fallbackExpirada = {
     screen: 'CONFIRMADO',
-    data: { saudacao_ok: data.saudacao_ok ?? '', oferta_resultado: 'expirada' },
+    data: {
+      saudacao_ok: data.saudacao_ok ?? '',
+      oferta_resultado: 'expirada',
+      ...(v8 ? { origem: 'expirada' } : {}),
+    },
   };
   const ref = parseFlowToken(payload.flow_token);
   if (!ref) return fallbackExpirada;
