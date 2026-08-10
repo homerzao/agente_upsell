@@ -308,6 +308,30 @@ export async function responderComIA(
             totalCusto,
           ],
         );
+      } else if (/00020101|br\.gov\.bcb\.pix/i.test(limpo || respostaFinal)) {
+        // TRAVA DURA (360 de 10/08, conversa 377): a IA INVENTOU um código PIX
+        // no texto — banco recusou, cliente desistiu. Código PIX só chega ao
+        // cliente pela ferramenta oficial (reenviar_pix → mensagem própria).
+        // Qualquer output do modelo com cara de código é suprimido e vira
+        // handoff: melhor um humano assumir do que um código alucinado sair.
+        await logEvento(ctx, 'hidrabene', {
+          erro: 'ia_bloqueada_pix_no_texto',
+          conversa_id: conversa.id,
+          amostra: (limpo || respostaFinal).slice(0, 120),
+        });
+        await ctx.db.query(
+          `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)
+           VALUES ($1,'out',$2,$3,$4,$5,$6)`,
+          [
+            conversa.id,
+            '🔒 registro interno: resposta BLOQUEADA (continha código PIX no texto — proibido). Encaminhado ao humano.',
+            promptHash,
+            { system, mensagens: messages.length, bloqueio_pix: true },
+            totalTokens,
+            totalCusto,
+          ],
+        );
+        await encaminharHumano(ctx, conversa, 'resposta bloqueada: código PIX no texto', texto.slice(0, 200));
       } else {
         const texto = limpo || respostaFinal;
         await responder(texto);

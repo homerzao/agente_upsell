@@ -24,8 +24,9 @@ export default function Login({ onLogin }: { onLogin: (user: string, csrf: strin
   return (
     <div className="login-wrap">
       <form className="login-box" onSubmit={enviar}>
-        <h1>🏆 Upsell Hidrabene</h1>
-        <p className="sub">Painel de gestão do funil de WhatsApp</p>
+        <img className="logo-login" src="/marca/logo-ticket-dourado.png" alt="Ticket Dourado" />
+        <h1>Ticket Dourado</h1>
+        <p className="sub">Upsell pós-compra no WhatsApp · Hidrabene</p>
         <div className="campo">
           <label>Usuário</label>
           <input value={user} onChange={(e) => setUser(e.target.value)} autoFocus style={{ width: '100%' }} />

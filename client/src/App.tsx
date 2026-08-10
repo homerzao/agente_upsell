@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import {
+  CheckSquare, LayoutDashboard, ListOrdered, MessageSquare, Rocket,
+  ScrollText, Settings, Tag, TrendingUp,
+} from 'lucide-react';
 import { get, post, setCsrf } from './api';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -29,22 +33,29 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   return (
     <div className="layout">
       <aside className="sidebar">
-        <div className="logo">🏆 Upsell Hidrabene</div>
+        <div className="logo">
+          <img src="/marca/logo-ticket-dourado.png" alt="" />
+          <span>Ticket <span className="dourado">Dourado</span></span>
+        </div>
         <nav>
-          <NavLink to="/" end className={cls}>Dashboard</NavLink>
-          <NavLink to="/fila" className={cls}>Fila ao vivo</NavLink>
-          <NavLink to="/disparo" className={cls}>Disparo controlado</NavLink>
-          <NavLink to="/oferta" className={cls}>Oferta</NavLink>
+          <div className="secao">Operação</div>
+          <NavLink to="/" end className={cls}><LayoutDashboard /> Dashboard</NavLink>
+          <NavLink to="/fila" className={cls}><ListOrdered /> Fila ao vivo</NavLink>
+          <NavLink to="/conversas" className={cls}><MessageSquare /> Conversas</NavLink>
           <NavLink to="/aprovacoes" className={cls}>
-            Aprovações{pendentes > 0 ? ` (${pendentes})` : ''}
+            <CheckSquare /> Aprovações
+            {pendentes > 0 && <span className="badge-nav">{pendentes}</span>}
           </NavLink>
-          <NavLink to="/conversas" className={cls}>Conversas</NavLink>
-          <NavLink to="/relatorios" className={cls}>Relatórios</NavLink>
-          <NavLink to="/logs" className={cls}>Logs</NavLink>
-          <NavLink to="/config" className={cls}>Config</NavLink>
+          <div className="secao">Gestão</div>
+          <NavLink to="/oferta" className={cls}><Tag /> Ofertas</NavLink>
+          <NavLink to="/disparo" className={cls}><Rocket /> Disparo</NavLink>
+          <NavLink to="/relatorios" className={cls}><TrendingUp /> Relatórios</NavLink>
+          <NavLink to="/logs" className={cls}><ScrollText /> Logs</NavLink>
+          <NavLink to="/config" className={cls}><Settings /> Config</NavLink>
         </nav>
         <div className="rodape">
-          <div style={{ color: 'var(--texto2)', fontSize: 12, marginBottom: 8 }}>{user}</div>
+          <div className="avatar">{user.slice(0, 2).toUpperCase()}</div>
+          <div className="quem">{user}</div>
           <button onClick={onLogout}>Sair</button>
         </div>
       </aside>

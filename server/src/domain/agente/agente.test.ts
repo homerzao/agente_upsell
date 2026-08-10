@@ -329,6 +329,24 @@ describe('silêncio do agente', () => {
     expect(cw.enviadas[0].content).toBe('Prontinho!');
     expect(cw.enviadas[0].content).not.toContain('SEM_RESPOSTA');
   });
+
+  // 360 de 10/08, conversa 377: a IA INVENTOU um código PIX no texto e o banco
+  // recusou. Código PIX só sai pela ferramenta oficial — output do modelo com
+  // cara de código é SUPRIMIDO e vira handoff. Trava de código, não de prompt.
+  it('resposta com código PIX no texto é BLOQUEADA e vira handoff', async () => {
+    const { db } = dbAgente();
+    const cw = chatwootFake();
+    const ctx: any = {
+      ...ctxTeste({ db }), chatwoot: cw,
+      openai: openaiQueCala('Segue seu código: 00020101021226820014br.gov.bcb.pix25600FALSO'),
+    };
+    ctx.cfg = { ...ctx.cfg, OPENAI_API_KEY: 'sk-teste' };
+    await processarMensagemCliente(ctx, 555, '5511987654321', 'meu pix não funciona');
+    // nada com o código chega ao cliente
+    expect(cw.enviadas.every((m: any) => !String(m.content).includes('00020101'))).toBe(true);
+    // e o bloqueio fica registrado
+    expect(db.achou(/INSERT INTO wa_events/).some((c) => JSON.stringify(c.values).includes('ia_bloqueada_pix_no_texto'))).toBe(true);
+  });
 });
 
 // Cliente escreve picado ("oi" / "quero mudar" / "o endereço"): responder cada
