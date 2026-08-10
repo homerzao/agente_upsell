@@ -64,8 +64,10 @@ const schema = z.object({
   // propósito (decisão do Jorge, 09/08): quem paga aos 11-12 min ainda entra.
   // 15→20 em 10/08 junto com a página do PIX (o timer da página usa o real).
   WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(20),
-  // Prazo ANUNCIADO ao cliente na mensagem do aceite (cria urgência real)
-  WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(10),
+  // Prazo ANUNCIADO ao cliente na mensagem do aceite. Era 10 (menor que o
+  // real, por urgência) — com a página do PIX mostrando o cronômetro REAL,
+  // anunciar menos ficou visivelmente falso (Jorge, 10/08). Agora = real.
+  WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(20),
   // Fecha como expirado só DEPOIS da validade real (com folga de 1 min)
   WA_UPSELL_CLOSE_MIN: z.coerce.number().default(21),
   // Base pública dos links gerados (página do PIX: {PUBLIC_URL}/pix/{token})

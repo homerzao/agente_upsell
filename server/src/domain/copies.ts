@@ -67,7 +67,7 @@ export const COPIES_DEFAULT: Record<string, string> = {
   // Última chance antes do prazo ANUNCIADO acabar. No piloto real (09/08),
   // 2 de 3 aceites viraram expirado: a pessoa aceita e some sem um empurrão.
   msg_lembrete_pix:
-    '⏱️ {{nome}}, seu código PIX vence em 3 minutos!\n\nÚltima chance de garantir o Kit Clareador por R$ 49,91 dentro do mesmo pedido, sem frete extra.\n\nÉ só colar aqui em cima no app do banco 💛',
+    '⏱️ {{nome}}, seu código PIX vence em {{minutos_restantes}} minutos!\n\nÚltima chance de garantir o Kit Clareador por R$ 49,91 dentro do mesmo pedido, sem frete extra.\n\nÉ só colar aqui em cima no app do banco 💛',
 
   // Página do PIX (10/08): mesmo link vai no lembrete dos 7 min e na tool
   // enviar_pagina_pix (cliente que não consegue copiar o código na conversa)

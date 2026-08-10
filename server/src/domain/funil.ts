@@ -898,7 +898,7 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
            AND lembrete_pix_em IS NULL AND pix_enviado_em IS NOT NULL
            AND pix_enviado_em < now() - ($1 || ' minutes')::interval
            AND (pix_expira_em IS NULL OR pix_expira_em > now())
-         RETURNING store, order_id, customer_phone, customer_name, oferta_id, pix_pagina_token`,
+         RETURNING store, order_id, customer_phone, customer_name, oferta_id, pix_pagina_token, pix_expira_em`,
         [ctx.cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN],
       );
       for (const r of paraLembrar.rows) {
@@ -906,6 +906,10 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
         const oferta = await getOferta(ctx, r.oferta_id);
         const nome = primeiroNome(r.customer_name);
         const fone = destino(ctx, cfgd.modo, r.customer_phone);
+        // Minutos REAIS até expirar, calculados AGORA (Jorge, 10/08: o "vence
+        // em 3 minutos" fixo era da era do prazo anunciado de 10 — a página
+        // mostra o cronômetro real, então a copy tem que bater com ele)
+        const minutosRest = Math.max(1, Math.ceil((new Date(r.pix_expira_em).getTime() - Date.now()) / 60000));
         // Página do PIX junto do lembrete (Jorge, 10/08): quem não pagou em 7
         // min muitas vezes é quem não CONSEGUIU copiar — o link resolve isso.
         const link = r.pix_pagina_token ? `${ctx.cfg.PUBLIC_URL}/pix/${r.pix_pagina_token}` : '';
@@ -914,9 +918,9 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
           renderCopy(
             copies.msg_lembrete_pix ??
               'Ó, {{nome}}: seu código PIX vence em pouquinho ⏱️\n\nÉ só colar no app do banco que o kit entra no seu pedido, sem frete extra.',
-            { nome },
+            { nome, minutos_restantes: minutosRest },
           ),
-          link ? renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link }) : '',
+          link ? renderCopy(copies.msg_pagina_pix ?? COPIES_DEFAULT.msg_pagina_pix, { nome, link, minutos_restantes: minutosRest }) : '',
         ].filter(Boolean);
         const msg = partes.join('\n\n');
         await ctx.meta.enviarTexto(fone, msg).then(

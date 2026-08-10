@@ -34,9 +34,9 @@ describe('loadConfig', () => {
     // quem paga aos 11-12 min ainda entra; o fechamento vem depois dos dois.
     // 15→20 em 10/08 (página do PIX: o timer usa a validade REAL)
     expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(20);
-    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(10);
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(20);
     expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(21);
-    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_TTL_MIN);
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBeLessThanOrEqual(cfg.WA_UPSELL_PIX_TTL_MIN);
     expect(cfg.WA_UPSELL_CLOSE_MIN).toBeGreaterThan(cfg.WA_UPSELL_PIX_TTL_MIN);
     // o lembrete tem que cair ANTES do prazo anunciado, senão não é lembrete
     expect(cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN);
