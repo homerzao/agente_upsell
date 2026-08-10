@@ -32,8 +32,10 @@ export const COPIES_DEFAULT: Record<string, string> = {
   // ⚠️ Texto de tela de FLOW não renderiza *negrito* (asterisco sai literal!):
   // ênfase aqui é CAIXA ALTA + emoji. Nas mensagens de sessão (msg_*) o
   // asterisco funciona normal.
+  // COMPACTA de propósito (Jorge, screenshot 10/08): a tela inteira — título,
+  // ganho, link de sair e botão — precisa caber SEM rolagem. Máximo 4 linhas.
   flow_confirma_titulo: '🏆 OFERTA ÚNICA DESBLOQUEADA!',
-  flow_confirma_resumo: 'Boa, {{nome}}! 🥳 Você pegou o que 99% nem chega a ver:\n\n✨ Kit Clareador COMPLETO (3 produtos)\n💸 De R$ {{preco_de}} por R$ {{preco}}\n💰 Você economiza R$ {{economia}} — {{desconto_pct}}% OFF 🔥\n\n📦 Cai direto no pedido #{{numero}} que você acabou de fazer\n🚚 Frete? Nadinha a mais — vai tudo junto',
+  flow_confirma_resumo: '✨ Kit Clareador COMPLETO — 3 produtos\n💸 De R$ {{preco_de}} por R$ {{preco}} ({{desconto_pct}}% OFF)\n💰 Você economiza R$ {{economia}} 🔥\n📦 No MESMO pedido, sem frete a mais',
 
   // Msg 1 do aceite: sai NA HORA (resposta instantânea), ANTES de criar o PIX.
   msg_aceite:
