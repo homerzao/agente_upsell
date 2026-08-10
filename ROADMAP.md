@@ -46,13 +46,13 @@ Problema: gente clicando o botão verde sem querer → PIX gerado à toa (150 ac
 
 ## 4. 360º das conversas da IA
 - [x] Baixar TODAS as conversas (182 com diálogo real, 293KB) + mensagens.
-- [~] Workflow de análise em paralelo (rodando): erros de fato, tom, oportunidades perdidas, silêncio errado,
+- [x] Workflow de análise em paralelo (4 lentes, 56 achados): erros de fato, tom, oportunidades perdidas, silêncio errado,
       loops, promessas indevidas — cada achado com exemplo real.
-- [ ] Ajustar blocos de prompt pelo MCP (sem deploy) e registrar o que mudou.
+- [x] Ajustar blocos de prompt (12 edições aplicadas ao vivo + trava anti-PIX no CÓDIGO) (sem deploy) e registrar o que mudou.
 
 ## 5. Visual novo (padrão tcomentai) + identidade
-- [~] Extrair o design system (rodando) do github.com/homerzao/tcomentai (cores, tipografia, layout, componentes).
-- [ ] Reestilizar o painel do upsell nesse padrão.
+- [x] Extrair o design system (tokens/receita em design-tcomentai.json) do github.com/homerzao/tcomentai (cores, tipografia, layout, componentes).
+- [x] Reestilizar o painel (tokens tcomentai + primário dourado; todas as classes antigas preservadas).
 - [x] Logo do produto (client/public/marca/logo-ticket-dourado.png) (MCP de imagem — autorizado).
 - [x] Nova arte do Ticket Dourado (client/public/marca/ticket-dourado-header.png) (MCP de imagem) — candidata a header do template novo.
 - [!] Nome do produto pra logo? (hoje o repo chama "agente_upsell"; painel não tem marca).
@@ -67,14 +67,14 @@ Visão: o sistema vai ser vendido/plugado em outras empresas.
       (honesto: onboarding completo NÃO fica pronto em uma noite; a fundação sim).
 
 ## 7. Deploy e validação
-- [ ] Testes verdes + `tsc` + build do client A CADA fase (lição de hoje: vitest não pega erro de tipo).
-- [ ] Deploy por fase (sistema pausado = janela segura).
-- [ ] Smoke test pós-deploy: painel, /api/dashboard, status API do faturamento.
+- [x] Testes verdes (165) + `tsc` + build do client a cada fase (lição de hoje: vitest não pega erro de tipo).
+- [x] Deploy por fase (3 deploys, app saudável em todos).
+- [x] Smoke test pós-deploy: painel, /api/dashboard, status API do faturamento — todos ✅.
 
 ## 8. Comunicação
 - [x] Travar a conversa do Jorge no TechSAC (conv 6799/1959587; resumo enviado; monitor nas respostas) (template) e usar o WhatsApp pra dúvidas/preview
       (autorizado por ele às 23h).
-- [ ] Amanhã cedo: resumo do que subiu + o que depende de decisão dele
+- [x] Resumo enviado no WhatsApp (2 mensagens); pendências de decisão listadas + o que depende de decisão dele
       (publicar flow v8, preço 19,90 vs 19,91, despausar com faixas ligadas).
 
 ## Fora do escopo desta noite (registrado pra não esquecer)
