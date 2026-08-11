@@ -15,6 +15,14 @@ export type EstadoPagina = 'vivo' | 'pago' | 'expirado';
 // coluna — quem entrar depois vê a página padrão, sem dado nenhum.
 export const PAGINA_PIX_RETENCAO_DIAS = 7;
 
+// O relógio que o CLIENTE vê para ANTES do vencimento real (Jorge, 10/08:
+// "mostraria prazo real -3 min, assim tem gordura"). Quem toca em pagar com o
+// contador zerando ainda cai dentro da validade da cobrança. Um único lugar
+// calcula isso: a página e o lembrete têm que dizer o mesmo número.
+export function expiraParaCliente(pixExpiraEm: string | Date, margemMin: number): Date {
+  return new Date(new Date(pixExpiraEm).getTime() - margemMin * 60 * 1000);
+}
+
 // Mesma régua do resto do funil: 'pago' vence sempre; vivo exige código
 // presente E validade no futuro; qualquer outra combinação é expirado.
 export function estadoPagina(row: Pick<WaUpsellRow, 'status' | 'etapa' | 'pix_codigo' | 'pix_expira_em'>): EstadoPagina {

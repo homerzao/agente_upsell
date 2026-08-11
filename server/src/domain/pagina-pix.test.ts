@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, estadoPagina, PAGINA_PIX_RETENCAO_DIAS, renderPaginaNaoEncontrada, renderPaginaPix, type DadosPagina } from './pagina-pix.js';
+import { escapeHtml, estadoPagina, expiraParaCliente, PAGINA_PIX_RETENCAO_DIAS, renderPaginaNaoEncontrada, renderPaginaPix, type DadosPagina } from './pagina-pix.js';
 
 const daquiA10Min = () => new Date(Date.now() + 10 * 60 * 1000).toISOString();
 const ha10Min = () => new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -61,6 +61,19 @@ describe('renderPaginaPix', () => {
     const html = renderPaginaPix({ ...base, precoDe: '', economia: '', descontoPct: '' });
     expect(html).not.toContain('class="de"');
     expect(html).not.toContain('OFF');
+  });
+});
+
+describe('gordura de 3 min (relógio do cliente para antes do vencimento real)', () => {
+  it('desconta a margem do vencimento real', () => {
+    const real = new Date('2026-08-10T23:20:00.000Z');
+    const visto = expiraParaCliente(real, 3);
+    expect(real.getTime() - visto.getTime()).toBe(3 * 60 * 1000);
+    expect(visto.toISOString()).toBe('2026-08-10T23:17:00.000Z');
+  });
+  it('margem 0 mantém o horário real', () => {
+    const real = '2026-08-10T23:20:00.000Z';
+    expect(expiraParaCliente(real, 0).toISOString()).toBe(real);
   });
 });
 

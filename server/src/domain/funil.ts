@@ -12,6 +12,7 @@ import { LABEL_UPSELL } from '../services/chatwoot.js';
 import { carbon, foneBr, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
 import { decidirDisparo, destinoMensagem, ehTransicaoParaPago, interpretarRespostaFlow } from './estados.js';
 import { COPIES_DEFAULT } from './copies.js';
+import { expiraParaCliente } from './pagina-pix.js';
 import { montarTemplateConfirma, montarTemplateTechSAC } from './template.js';
 import type { DisparosConfig, Oferta, RespostaFlow, WaUpsellRow } from './tipos.js';
 
@@ -910,7 +911,8 @@ export async function sweep(ctx: FunilCtx): Promise<void> {
         // Arredondado PRA BAIXO em múltiplo de 5 (Jorge, 10/08: "12 minutos"
         // fica feio — "10" lê melhor; entregar MAIS tempo que o dito é ok,
         // menos nunca). Abaixo de 5, vale o número exato.
-        const exatos = Math.max(1, Math.floor((new Date(r.pix_expira_em).getTime() - Date.now()) / 60000));
+        const alvo = expiraParaCliente(r.pix_expira_em, ctx.cfg.WA_UPSELL_PIX_MARGEM_MIN).getTime();
+        const exatos = Math.max(1, Math.floor((alvo - Date.now()) / 60000));
         const minutosRest = exatos >= 5 ? Math.floor(exatos / 5) * 5 : exatos;
         // Página do PIX junto do lembrete (Jorge, 10/08): quem não pagou em 7
         // min muitas vezes é quem não CONSEGUIU copiar — o link resolve isso.

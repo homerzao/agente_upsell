@@ -30,13 +30,16 @@ describe('loadConfig', () => {
     expect(cfg.WA_FONE_TESTE).toBe('5591992148793'); // fone do Jorge
     expect(cfg.WA_UPSELL_TEMPLATE_CONFIRMA).toBe('confirma_pedido_up');
     expect(cfg.WA_UPSELL_FLOW_ID).toBe('3548925675262517'); // v6 (data_exchange)
-    // Validade real MAIOR que o prazo anunciado (decisão do Jorge, 09/08):
-    // quem paga aos 11-12 min ainda entra; o fechamento vem depois dos dois.
-    // 15→20 em 10/08 (página do PIX: o timer usa a validade REAL)
-    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(20);
+    // O cliente vê SEMPRE o mesmo número (aceite, relógio da página e conta do
+    // lembrete): TTL real − margem. A margem é a gordura invisível de quem
+    // paga com o contador zerando (Jorge, 10/08). Fechamento vem depois de tudo.
+    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(23);
+    expect(cfg.WA_UPSELL_PIX_MARGEM_MIN).toBe(3);
     expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(20);
-    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(21);
-    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBeLessThanOrEqual(cfg.WA_UPSELL_PIX_TTL_MIN);
+    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(24);
+    // INVARIANTE: anunciado = TTL − margem. Se alguém mexer num sem o outro,
+    // a mensagem e o relógio da página passam a dizer coisas diferentes.
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(cfg.WA_UPSELL_PIX_TTL_MIN - cfg.WA_UPSELL_PIX_MARGEM_MIN);
     expect(cfg.WA_UPSELL_CLOSE_MIN).toBeGreaterThan(cfg.WA_UPSELL_PIX_TTL_MIN);
     // o lembrete tem que cair ANTES do prazo anunciado, senão não é lembrete
     expect(cfg.WA_UPSELL_LEMBRETE_PIX_APOS_MIN).toBeLessThan(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN);

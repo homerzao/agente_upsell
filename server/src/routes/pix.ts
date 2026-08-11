@@ -12,6 +12,7 @@ import { getOferta, logEvento, type FunilCtx } from '../domain/funil.js';
 import { primeiroNome } from '../lib/util.js';
 import {
   estadoPagina,
+  expiraParaCliente,
   renderPaginaNaoEncontrada,
   renderPaginaPix,
   PAGINA_PIX_RETENCAO_DIAS,
@@ -157,7 +158,10 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
           economia: temDe ? brl(Number(oferta!.preco_de) - Number(oferta!.preco)) : '',
           descontoPct: temDe ? String(Math.round((1 - Number(oferta!.preco) / Number(oferta!.preco_de)) * 100)) : '',
           codigo: estado === 'vivo' ? String(row.pix_codigo) : '',
-          expiraEmIso: estado === 'vivo' ? new Date(row.pix_expira_em).toISOString() : '',
+          expiraEmIso:
+            estado === 'vivo'
+              ? expiraParaCliente(row.pix_expira_em, ctx.cfg.WA_UPSELL_PIX_MARGEM_MIN).toISOString()
+              : '',
         }),
       );
     },

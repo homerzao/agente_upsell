@@ -60,16 +60,19 @@ const schema = z.object({
   WA_UPSELL_FLOW_ID: z.string().default('3548925675262517'),
   WA_UPSELL_HEADER_MEDIA_ID: z.string().default(''),
   WA_UPSELL_HEADER_URL: z.string().default(''),
-  // Validade REAL do PIX na Pagar.me. Fica maior que o prazo anunciado de
-  // propósito (decisão do Jorge, 09/08): quem paga aos 11-12 min ainda entra.
-  // 15→20 em 10/08 junto com a página do PIX (o timer da página usa o real).
-  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(20),
-  // Prazo ANUNCIADO ao cliente na mensagem do aceite. Era 10 (menor que o
-  // real, por urgência) — com a página do PIX mostrando o cronômetro REAL,
-  // anunciar menos ficou visivelmente falso (Jorge, 10/08). Agora = real.
+  // Validade REAL do PIX na Pagar.me = o que o cliente vê + a MARGEM abaixo.
+  // O cliente nunca vê este número: ele é a gordura (Jorge, 10/08: "mostraria
+  // prazo real -3 min, assim tem gordura") pra quem paga no último segundo.
+  WA_UPSELL_PIX_TTL_MIN: z.coerce.number().default(23),
+  // Gordura invisível: o relógio da página e a conta do lembrete param aqui
+  // antes do vencimento real. Quem paga com o timer zerando ainda entra.
+  WA_UPSELL_PIX_MARGEM_MIN: z.coerce.number().default(3),
+  // Prazo ANUNCIADO no aceite. Tem que ser TTL − MARGEM pra bater com o
+  // relógio da página (Jorge, 10/08: "não faz sentido ser 20m se falamos na
+  // msg que é 10min") — o cliente vê o MESMO número em todo lugar.
   WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(20),
   // Fecha como expirado só DEPOIS da validade real (com folga de 1 min)
-  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(21),
+  WA_UPSELL_CLOSE_MIN: z.coerce.number().default(24),
   // Base pública dos links gerados (página do PIX: {PUBLIC_URL}/pix/{token}).
   // O default é o domínio ATUAL da marca de propósito: se a variável sumir do
   // .env, o pior caso é continuar no domínio certo — antes o default era o
