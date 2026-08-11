@@ -806,6 +806,20 @@ export async function enviarPaginaPix(
   // A página nunca mostra código morto — sem PIX vivo o link não ajuda ninguém
   if (!vivo) return { ok: false, motivo: 'pix_nao_esta_vivo_use_reenviar_pix_antes' };
   if (!row.pix_pagina_token) return { ok: false, motivo: 'sem_token_de_pagina' };
+  // IDEMPOTÊNCIA (Pedro, 11/08 20:22): o cliente recebeu a MESMA página duas
+  // vezes seguidas — a IA chamou reenviar_pix (que já manda a página junto) e
+  // logo depois enviar_pagina_pix. Uma página por PIX vivo, ponto: se já foi
+  // desde que este código nasceu, não manda de novo.
+  const jaFoi = await ctx.db.query(
+    `SELECT 1 FROM wa_events
+      WHERE store=$1 AND payload->>'evento'='pagina_pix_enviada'
+        AND payload->>'order_id'=$2 AND created_at >= $3 LIMIT 1`,
+    [store, String(orderId), row.pix_enviado_em],
+  );
+  if (jaFoi.rows.length) {
+    await logEvento(ctx, store, { evento: 'pagina_pix_duplicada_evitada', order_id: orderId });
+    return { ok: true, motivo: 'ja_enviada_para_este_pix' };
+  }
   const cfgd = await getDisparosConfig(ctx);
   const oferta = await getOferta(ctx, row.oferta_id);
   const copies = oferta?.copies ?? {};
