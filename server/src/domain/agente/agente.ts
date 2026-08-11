@@ -10,6 +10,19 @@ import { montarSystemPrompt, type ContextoAgente } from './contexto.js';
 import { TOOL_DEFS, executarTool } from './tools.js';
 import type { WaUpsellRow } from '../tipos.js';
 
+// Tira da resposta do modelo o link da NOSSA página do PIX (Clarice, 10/08
+// 21:31): quando reenviar_pix/enviar_pagina_pix rodam, a página já foi
+// enviada com link e botão — a IA repetindo a mesma URL vira mensagem dupla.
+// Outros links (rastreio, site) continuam passando.
+export function removerLinkPagina(texto: string): string {
+  return texto
+    .replace(/https?:\/\/[^\s]*\/pix\/[A-Za-z0-9_-]+/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 export type AgenteCtx = FunilCtx & { openai: OpenAIService | null };
 
 const MAX_RODADAS_TOOLS = 5;
@@ -343,7 +356,41 @@ export async function responderComIA(
         );
         await encaminharHumano(ctx, conversa, 'resposta bloqueada: código PIX no texto', texto.slice(0, 200));
       } else {
-        const texto = limpo || respostaFinal;
+        // LINK DUPLICADO DA PÁGINA (Clarice, 10/08 21:31): reenviar_pix já
+        // manda a página sozinho; a IA repetiu o MESMO link 3 segundos depois
+        // e a cliente levou a mesma URL duas vezes. Prompt pede pra não
+        // repetir, mas quem garante é isto: se a página saiu neste turno, o
+        // link é removido do texto dela (a mensagem em si continua).
+        let texto = limpo || respostaFinal;
+        if (toolsUsadas.has('reenviar_pix') || toolsUsadas.has('enviar_pagina_pix')) {
+          const semLink = removerLinkPagina(texto);
+          if (semLink !== texto) {
+            await logEvento(ctx, 'hidrabene', {
+              evento: 'link_pagina_duplicado_removido',
+              conversa_id: conversa.id,
+              order_id: row.order_id,
+            });
+            // Só troca se sobrou mensagem de verdade; se o texto era SÓ o link,
+            // manter o original seria repetir — então o agente cala (a página
+            // já foi enviada pela ferramenta, com link e botão).
+            texto = semLink;
+          }
+          if (!texto) {
+            await ctx.db.query(
+              `INSERT INTO mensagens_ia (conversa_id, direcao, texto, prompt_hash, contexto, tokens, custo)
+               VALUES ($1,'out',$2,$3,$4,$5,$6)`,
+              [
+                conversa.id,
+                '🔒 registro interno: resposta era só o link da página (já enviado pela ferramenta) — não reenviada ao cliente',
+                promptHash,
+                { system, mensagens: messages.length, link_duplicado: true },
+                totalTokens,
+                totalCusto,
+              ],
+            );
+            return;
+          }
+        }
         // PROMESSA VAZIA DE REENVIO (Maria, 10/08 18:58): a IA respondeu
         // "Reenviei o código PIX certinho" SEM ter chamado reenviar_pix — a
         // cliente ficou esperando um código que nunca vinha, com o PIX

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { montarSystemPrompt } from './contexto.js';
 import { TOOL_DEFS } from './tools.js';
-import { pedeHumano, processarMensagemCliente, responderPendentes, resolverConversa } from './agente.js';
+import { pedeHumano, processarMensagemCliente, removerLinkPagina, responderPendentes, resolverConversa } from './agente.js';
 import { FakeDb, configDisparoRow, ctxTeste, rowBase, ofertaBase } from '../../test/fakes.js';
 import { COPIES_DEFAULT } from '../copies.js';
 import type { WaUpsellRow } from '../tipos.js';
@@ -65,6 +65,26 @@ describe('montarSystemPrompt (guardrails)', () => {
     const p = montarSystemPrompt(contexto);
     expect(p).not.toContain('04686204194');
     expect(p).toContain('046***94');
+  });
+});
+
+describe('removerLinkPagina — link da página não sai duas vezes', () => {
+  // Clarice (10/08 21:31): reenviar_pix mandou a página e a IA repetiu o
+  // MESMO link 3 segundos depois; a cliente levou a URL em duplicidade.
+  it('tira o link e mantém a mensagem', () => {
+    const r = removerLinkPagina('Te mandei de novo, Clarice — é só tocar no botão.\n\nhttps://ticket.hidrabene.com.br/pix/ey1X8onNO0QfHgaRn');
+    expect(r).toBe('Te mandei de novo, Clarice — é só tocar no botão.');
+  });
+  it('texto que era SÓ o link vira vazio (aí o agente cala)', () => {
+    expect(removerLinkPagina('https://ticket.hidrabene.com.br/pix/abc123XYZ_-')).toBe('');
+  });
+  it('vale para qualquer um dos domínios da página', () => {
+    expect(removerLinkPagina('olha https://upsell.techecom.com.br/pix/aaaBBB111 aqui')).toBe('olha aqui');
+    expect(removerLinkPagina('olha https://hidrabene.techecom.com.br/pix/aaaBBB111 aqui')).toBe('olha aqui');
+  });
+  it('NÃO mexe em link que não é da página (rastreio segue)', () => {
+    const t = 'Acompanhe em https://rastreio.hidrabene.com.br/status/1517221975585628';
+    expect(removerLinkPagina(t)).toBe(t);
   });
 });
 

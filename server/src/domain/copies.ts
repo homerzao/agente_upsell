@@ -69,10 +69,12 @@ export const COPIES_DEFAULT: Record<string, string> = {
   msg_lembrete_pix:
     '⏱️ {{nome}}, seu código PIX vence em {{minutos_restantes}} minutos!\n\nÚltima chance de garantir o Kit Clareador por R$ 49,91 dentro do mesmo pedido, sem frete extra.\n\nÉ só colar aqui em cima no app do banco 💛',
 
-  // Página do PIX (10/08): mesmo link vai no lembrete dos 7 min e na tool
-  // enviar_pagina_pix (cliente que não consegue copiar o código na conversa)
+  // Página do PIX (10/08): o mesmo link vai no lembrete dos 7 min, no reenvio
+  // e na tool enviar_pagina_pix. Copy NEUTRA de propósito — a primeira versão
+  // dizia "se o copia e cola não funcionar" e saiu para uma cliente que tinha
+  // dito "já foi pago" (Gislaine, 21:38), fora de contexto. Serve pros dois casos.
   msg_pagina_pix:
-    'Se o copia e cola daqui do WhatsApp não funcionar, {{nome}}, usa essa página segura — o código tá inteirinho lá, com um botão que copia sozinho:\n\n{{link}}',
+    'Se preferir, {{nome}}, dá pra pagar por esta página segura: o código está inteiro lá e um botão copia ele sozinho 👇\n\n{{link}}',
   // Corpo da mensagem-botão (cta_url) que sai logo abaixo do link solto
   msg_pagina_pix_cta: 'Ou toca aqui embaixo que abre direto 👇',
 
