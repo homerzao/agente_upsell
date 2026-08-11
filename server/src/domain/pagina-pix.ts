@@ -4,11 +4,16 @@
 // Nasceu de 3 clientes no MESMO dia travadas em copiar o código certo no
 // WhatsApp (Maria, Beatriz, Vanessa): aqui o código é um toque.
 // Estados: vivo (timer + código + botão) / pago / expirado. A própria página
-// consulta /pix/:token/status a cada 10s e vira 'pago' sozinha se o webhook
-// da Pagar.me confirmar com ela aberta.
+// consulta /pix/:token/status a cada 15s (só com a aba visível) e vira
+// 'pago' sozinha se o webhook da Pagar.me confirmar com ela aberta.
 import type { WaUpsellRow } from './tipos.js';
 
 export type EstadoPagina = 'vivo' | 'pago' | 'expirado';
+
+// O link morre depois disso (Jorge, 10/08: "o ideal seria matar o link em 7
+// dias"). Dupla proteção: a rota já ignora token velho E o sweeper zera a
+// coluna — quem entrar depois vê a página padrão, sem dado nenhum.
+export const PAGINA_PIX_RETENCAO_DIAS = 7;
 
 // Mesma régua do resto do funil: 'pago' vence sempre; vivo exige código
 // presente E validade no futuro; qualquer outra combinação é expirado.
@@ -271,17 +276,28 @@ body.expirado .codigo-wrap,body.expirado .passos,body.expirado .timer-wrap{displ
     btn.addEventListener('click', copiarCodigo);
     document.getElementById('codigo').addEventListener('click', copiarCodigo);
 
-    // Polling leve (10s): se o webhook confirmar com a página aberta, ela
-    // vira 'pago' sozinha; se expirar no servidor, encerra também.
-    var poll = setInterval(function(){
+    // Polling (15s) só enquanto a página está VISÍVEL: aba escondida ou
+    // celular no bolso não consulta nada. Isso é o que segura o custo quando
+    // muita gente tem a página aberta ao mesmo tempo (Jorge, 10/08: cuidado
+    // com performance no volume). Para de vez quando confirma ou expira.
+    var poll = null;
+    function consultar(){
       fetch('/pix/' + token + '/status', { cache: 'no-store' })
         .then(function(r){ return r.json(); })
         .then(function(j){
-          if (j.estado === 'pago')     { clearInterval(poll); clearInterval(iv); pagar(); }
-          if (j.estado === 'expirado') { clearInterval(poll); clearInterval(iv); expirar(); }
+          if (j.estado === 'pago')     { pararTudo(); pagar(); }
+          if (j.estado === 'expirado') { pararTudo(); expirar(); }
         })
         .catch(function(){});
-    }, 10000);
+    }
+    function pararTudo(){ if (poll) { clearInterval(poll); poll = null; } clearInterval(iv); }
+    function ligarPolling(){ if (!poll && !document.hidden) poll = setInterval(consultar, 15000); }
+    function desligarPolling(){ if (poll) { clearInterval(poll); poll = null; } }
+    document.addEventListener('visibilitychange', function(){
+      if (document.hidden) desligarPolling();
+      else { consultar(); ligarPolling(); } // voltou pra tela: confere na hora
+    });
+    ligarPolling();
   }
 })();
 </script>

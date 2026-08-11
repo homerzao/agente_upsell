@@ -14,6 +14,7 @@ import {
   estadoPagina,
   renderPaginaNaoEncontrada,
   renderPaginaPix,
+  PAGINA_PIX_RETENCAO_DIAS,
   type EstadoPagina,
 } from '../domain/pagina-pix.js';
 
@@ -55,10 +56,45 @@ function headersPagina(reply: any): void {
   );
 }
 
+// Token VELHO não resolve mais: cai na página padrão como se não existisse.
+// (O sweeper zera a coluna depois; isto aqui garante o prazo mesmo antes dele.)
+// Sandbox fica de fora — é o caso de demonstração, não expira.
 async function buscarPorToken(ctx: FunilCtx, token: string): Promise<any | null> {
   if (!TOKEN_RE.test(token)) return null;
-  const r = await ctx.db.query('SELECT * FROM wa_upsell WHERE pix_pagina_token=$1', [token]);
+  const r = await ctx.db.query(
+    `SELECT * FROM wa_upsell
+      WHERE pix_pagina_token=$1
+        AND (store='sandbox' OR COALESCE(pix_enviado_em, criado_em) > now() - ($2 || ' days')::interval)`,
+    [token, PAGINA_PIX_RETENCAO_DIAS],
+  );
   return r.rows[0] ?? null;
+}
+
+// Estado do polling: query MÍNIMA (4 colunas, índice do token) — roda a cada
+// 15s por aba aberta, então é o ponto quente da página em dia de volume.
+async function estadoPorToken(ctx: FunilCtx, token: string): Promise<EstadoPagina | null> {
+  if (!TOKEN_RE.test(token)) return null;
+  const r = await ctx.db.query(
+    `SELECT status, etapa, pix_codigo, pix_expira_em FROM wa_upsell
+      WHERE pix_pagina_token=$1
+        AND (store='sandbox' OR COALESCE(pix_enviado_em, criado_em) > now() - ($2 || ' days')::interval)`,
+    [token, PAGINA_PIX_RETENCAO_DIAS],
+  );
+  return r.rows[0] ? estadoPagina(r.rows[0]) : null;
+}
+
+// UMA linha por pedido por evento (TTL da retenção): sem isso, recarregar a
+// página vira log novo e a tabela cresce com o volume de pedidos. Redis fora
+// do ar = registra (perder métrica é pior que uma linha a mais).
+async function primeiraVez(ctx: FunilCtx, store: string, orderId: number, evento: string): Promise<boolean> {
+  try {
+    const r = await ctx.redis.set(
+      `waup:pgpix:${store}:${orderId}:${evento}`, '1', 'EX', PAGINA_PIX_RETENCAO_DIAS * 86400, 'NX',
+    );
+    return r === 'OK';
+  } catch {
+    return true;
+  }
 }
 
 export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
@@ -80,13 +116,18 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
       // visitante, senão o número mistura cliente com pré-carregamento da Meta
       // e com os testes do Jorge (10/08).
       const ua = String(req.headers['user-agent'] ?? '');
-      await logEvento(ctx, row.store, {
-        evento: 'pagina_pix_aberta',
-        order_id: row.order_id,
-        estado,
-        quem: classificarUA(ua),
-        visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
-      }).catch(() => {});
+      const quem = classificarUA(ua);
+      // Só GENTE e só a PRIMEIRA vez: pré-carregamento do WhatsApp, robô e
+      // reload não viram linha no banco (a métrica que interessa é "abriu?").
+      if (quem === 'pessoa' && (await primeiraVez(ctx, row.store, row.order_id, 'aberta'))) {
+        await logEvento(ctx, row.store, {
+          evento: 'pagina_pix_aberta',
+          order_id: row.order_id,
+          estado,
+          quem,
+          visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
+        }).catch(() => {});
+      }
       return reply.code(200).send(
         renderPaginaPix({
           estado,
@@ -109,10 +150,9 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
     '/pix/:token/status',
     { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
     async (req, reply) => {
-      const row = await buscarPorToken(ctx, String((req.params as any).token ?? ''));
+      const estado = await estadoPorToken(ctx, String((req.params as any).token ?? ''));
       reply.header('cache-control', 'no-store');
-      if (!row) return { estado: 'expirado' };
-      return { estado: estadoPagina(row) };
+      return { estado: estado ?? 'expirado' };
     },
   );
 
@@ -124,12 +164,15 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
       const row = await buscarPorToken(ctx, String((req.params as any).token ?? ''));
       if (row) {
         const ua = String(req.headers['user-agent'] ?? '');
-        await logEvento(ctx, row.store, {
-          evento: 'pagina_pix_copiou',
-          order_id: row.order_id,
-          quem: classificarUA(ua),
-          visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
-        }).catch(() => {});
+        const quem = classificarUA(ua);
+        if (await primeiraVez(ctx, row.store, row.order_id, 'copiou')) {
+          await logEvento(ctx, row.store, {
+            evento: 'pagina_pix_copiou',
+            order_id: row.order_id,
+            quem,
+            visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
+          }).catch(() => {});
+        }
       }
       return reply.code(204).send();
     },

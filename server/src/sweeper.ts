@@ -7,6 +7,7 @@
 import type { AgenteCtx } from './domain/agente/agente.js';
 import { responderPendentes } from './domain/agente/agente.js';
 import { FILA_META, logEvento, processarFilaDisparo, sweep } from './domain/funil.js';
+import { PAGINA_PIX_RETENCAO_DIAS } from './domain/pagina-pix.js';
 import { processarWebhookMeta } from './domain/metaWebhook.js';
 
 export function startSweeper(ctx: AgenteCtx): () => void {
@@ -79,6 +80,16 @@ export function startSweeper(ctx: AgenteCtx): () => void {
   const t3 = setInterval(() => {
     ctx.db
       .query(`DELETE FROM wa_events WHERE created_at < now() - interval '30 days' AND store <> 'pagarme'`)
+      .catch(() => {});
+    // Link da página do PIX morre em 7 dias: zera o token (a rota já recusa
+    // antes disso; aqui o dado sai do banco e do índice). Sandbox não expira.
+    ctx.db
+      .query(
+        `UPDATE wa_upsell SET pix_pagina_token=NULL
+          WHERE pix_pagina_token IS NOT NULL AND store <> 'sandbox'
+            AND COALESCE(pix_enviado_em, criado_em) < now() - ($1 || ' days')::interval`,
+        [PAGINA_PIX_RETENCAO_DIAS],
+      )
       .catch(() => {});
   }, 6 * 3600 * 1000);
 

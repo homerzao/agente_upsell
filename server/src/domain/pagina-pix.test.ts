@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { escapeHtml, estadoPagina, renderPaginaNaoEncontrada, renderPaginaPix, type DadosPagina } from './pagina-pix.js';
+import { escapeHtml, estadoPagina, PAGINA_PIX_RETENCAO_DIAS, renderPaginaNaoEncontrada, renderPaginaPix, type DadosPagina } from './pagina-pix.js';
 
 const daquiA10Min = () => new Date(Date.now() + 10 * 60 * 1000).toISOString();
 const ha10Min = () => new Date(Date.now() - 10 * 60 * 1000).toISOString();
@@ -61,6 +61,22 @@ describe('renderPaginaPix', () => {
     const html = renderPaginaPix({ ...base, precoDe: '', economia: '', descontoPct: '' });
     expect(html).not.toContain('class="de"');
     expect(html).not.toContain('OFF');
+  });
+});
+
+describe('retenção e polling', () => {
+  it('link vive 7 dias', () => {
+    expect(PAGINA_PIX_RETENCAO_DIAS).toBe(7);
+  });
+  it('polling é de 15s e para quando a aba some', () => {
+    const html = renderPaginaPix(base);
+    expect(html).toContain('setInterval(consultar, 15000)');
+    expect(html).toContain('visibilitychange');
+    expect(html).toContain('!document.hidden');
+  });
+  it('estado pago/expirado não faz polling nenhum (nada a atualizar)', () => {
+    const html = renderPaginaPix({ ...base, estado: 'pago', codigo: '', expiraEmIso: '' });
+    expect(html).toContain('var vivo = false');
   });
 });
 
