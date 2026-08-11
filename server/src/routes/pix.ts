@@ -50,6 +50,9 @@ function headersPagina(reply: any): void {
   reply.header('referrer-policy', 'no-referrer');
   reply.header('x-content-type-options', 'nosniff');
   reply.header('x-frame-options', 'DENY');
+  // HTTPS obrigatório nas próximas visitas (o redirect 301 sozinho deixa a
+  // primeira aberta a downgrade)
+  reply.header('strict-transport-security', 'max-age=31536000');
   reply.header(
     'content-security-policy',
     "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
@@ -106,7 +109,9 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
       const token = String((req.params as any).token ?? '');
       const row = await buscarPorToken(ctx, token);
       headersPagina(reply);
-      if (!row) return reply.code(200).send(renderPaginaNaoEncontrada());
+      // 404 REAL (mesma resposta pra token inexistente E expirado: continua
+      // indistinguível pra quem tenta adivinhar, mas agora monitoria enxerga)
+      if (!row) return reply.code(404).send(renderPaginaNaoEncontrada());
 
       const estado: EstadoPagina = estadoPagina(row);
       const oferta = await getOferta(ctx, row.oferta_id);

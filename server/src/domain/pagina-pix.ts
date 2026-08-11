@@ -240,8 +240,14 @@ body.expirado .codigo-wrap,body.expirado .passos,body.expirado .timer-wrap{displ
     var iv = setInterval(tick, 250);
     function tick(){
       var s = Math.max(0, Math.floor((expira - Date.now())/1000));
-      var m = String(Math.floor(s/60)).padStart(2,'0'), ss = String(s%60).padStart(2,'0');
-      timerEl.textContent = m + ':' + ss;
+      if (s >= 3600) {
+        // Validade longa (caso de demonstração): mm:ss viraria "10079:57"
+        var d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+        timerEl.textContent = d > 0 ? (d + 'd ' + h + 'h') : (h + 'h ' + Math.floor((s%3600)/60) + 'min');
+      } else {
+        var m = String(Math.floor(s/60)).padStart(2,'0'), ss = String(s%60).padStart(2,'0');
+        timerEl.textContent = m + ':' + ss;
+      }
       if (s <= 180) timerEl.classList.add('urgente');
       if (s === 0) { clearInterval(iv); expirar(); }
     }

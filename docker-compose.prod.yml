@@ -34,14 +34,14 @@ services:
       - traefik.enable=true
       - traefik.docker.network=easypanel
       # HTTPS
-      - traefik.http.routers.agenteupsell-https.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.agenteupsell-https.rule=Host(`${APP_DOMAIN:?APP_DOMAIN obrigatorio no .env}`)
       - traefik.http.routers.agenteupsell-https.entrypoints=https
       - traefik.http.routers.agenteupsell-https.tls=true
       - traefik.http.routers.agenteupsell-https.tls.certresolver=letsencrypt
       - traefik.http.routers.agenteupsell-https.service=agenteupsell
       - traefik.http.services.agenteupsell.loadbalancer.server.port=3000
       # HTTP -> HTTPS
-      - traefik.http.routers.agenteupsell-http.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.agenteupsell-http.rule=Host(`${APP_DOMAIN:?APP_DOMAIN obrigatorio no .env}`)
       - traefik.http.routers.agenteupsell-http.entrypoints=http
       - traefik.http.routers.agenteupsell-http.service=agenteupsell
       - traefik.http.routers.agenteupsell-http.middlewares=agenteupsell-redirect
@@ -53,21 +53,25 @@ services:
       # que já foi parar no WhatsApp de cliente NUNCA sai daqui, só entram novos.
       #   APP_DOMAIN_2 = hidrabene.techecom.com.br (10/08, provisório)
       #   APP_DOMAIN_3 = ticket.hidrabene.com.br  (10/08, domínio da marca)
-      - traefik.http.routers.agenteupsellhb-https.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`)
+      # Estes hosts servem SÓ o que é do cliente (/pix e as artes em /marca).
+      # Sem o PathPrefix eles entregavam o painel de operador na raiz e toda a
+      # superfície de /api, /webhook e /wa-upsell — num domínio que vai pro
+      # WhatsApp de centenas de clientes (achado da auditoria, 10/08).
+      - traefik.http.routers.agenteupsellhb-https.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`) && (PathPrefix(`/pix`) || PathPrefix(`/marca`))
       - traefik.http.routers.agenteupsellhb-https.entrypoints=https
       - traefik.http.routers.agenteupsellhb-https.tls=true
       - traefik.http.routers.agenteupsellhb-https.tls.certresolver=letsencrypt
       - traefik.http.routers.agenteupsellhb-https.service=agenteupsell
-      - traefik.http.routers.agenteupsellhb-http.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`)
+      - traefik.http.routers.agenteupsellhb-http.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`) && (PathPrefix(`/pix`) || PathPrefix(`/marca`))
       - traefik.http.routers.agenteupsellhb-http.entrypoints=http
       - traefik.http.routers.agenteupsellhb-http.service=agenteupsell
       - traefik.http.routers.agenteupsellhb-http.middlewares=agenteupsell-redirect
-      - traefik.http.routers.agenteupsellticket-https.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`)
+      - traefik.http.routers.agenteupsellticket-https.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`) && (PathPrefix(`/pix`) || PathPrefix(`/marca`))
       - traefik.http.routers.agenteupsellticket-https.entrypoints=https
       - traefik.http.routers.agenteupsellticket-https.tls=true
       - traefik.http.routers.agenteupsellticket-https.tls.certresolver=letsencrypt
       - traefik.http.routers.agenteupsellticket-https.service=agenteupsell
-      - traefik.http.routers.agenteupsellticket-http.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`)
+      - traefik.http.routers.agenteupsellticket-http.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`) && (PathPrefix(`/pix`) || PathPrefix(`/marca`))
       - traefik.http.routers.agenteupsellticket-http.entrypoints=http
       - traefik.http.routers.agenteupsellticket-http.service=agenteupsell
       - traefik.http.routers.agenteupsellticket-http.middlewares=agenteupsell-redirect

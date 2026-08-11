@@ -70,8 +70,11 @@ const schema = z.object({
   WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN: z.coerce.number().default(20),
   // Fecha como expirado só DEPOIS da validade real (com folga de 1 min)
   WA_UPSELL_CLOSE_MIN: z.coerce.number().default(21),
-  // Base pública dos links gerados (página do PIX: {PUBLIC_URL}/pix/{token})
-  PUBLIC_URL: z.string().default('https://upsell.techecom.com.br'),
+  // Base pública dos links gerados (página do PIX: {PUBLIC_URL}/pix/{token}).
+  // O default é o domínio ATUAL da marca de propósito: se a variável sumir do
+  // .env, o pior caso é continuar no domínio certo — antes o default era o
+  // domínio antigo e a regressão seria silenciosa (achado da auditoria, 10/08).
+  PUBLIC_URL: z.string().default('https://ticket.hidrabene.com.br'),
   // Janela pré-aceite: fecha aguardando_confirmacao/confirmado/erro_disparo (ERP libera ~28min)
   WA_UPSELL_JANELA_MIN: z.coerce.number().default(25),
   // Auto-close SÓ do corrigir_sac (atendimento humano)
