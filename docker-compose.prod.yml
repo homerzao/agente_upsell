@@ -47,11 +47,12 @@ services:
       - traefik.http.routers.agenteupsell-http.middlewares=agenteupsell-redirect
       - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.scheme=https
       - traefik.http.middlewares.agenteupsell-redirect.redirectscheme.permanent=true
-      # Domínio de CLIENTE da página do PIX (10/08: hidrabene.techecom.com.br).
-      # Router SEPARADO de propósito: cert próprio — se a emissão dele falhar
-      # (DNS ainda não aponta pra cá), o cert do domínio principal não é afetado.
-      # Link enviado é contrato: quando trocar de domínio, o antigo CONTINUA
-      # aqui — nunca remover um host que já foi parar no WhatsApp de cliente.
+      # Domínios de CLIENTE da página do PIX. Cada um com router PRÓPRIO de
+      # propósito: cert isolado — se a emissão de um falhar (DNS ainda não
+      # apontado), os outros seguem no ar. Link enviado é CONTRATO: domínio
+      # que já foi parar no WhatsApp de cliente NUNCA sai daqui, só entram novos.
+      #   APP_DOMAIN_2 = hidrabene.techecom.com.br (10/08, provisório)
+      #   APP_DOMAIN_3 = ticket.hidrabene.com.br  (10/08, domínio da marca)
       - traefik.http.routers.agenteupsellhb-https.rule=Host(`${APP_DOMAIN_2:-hidrabene.techecom.com.br}`)
       - traefik.http.routers.agenteupsellhb-https.entrypoints=https
       - traefik.http.routers.agenteupsellhb-https.tls=true
@@ -61,6 +62,15 @@ services:
       - traefik.http.routers.agenteupsellhb-http.entrypoints=http
       - traefik.http.routers.agenteupsellhb-http.service=agenteupsell
       - traefik.http.routers.agenteupsellhb-http.middlewares=agenteupsell-redirect
+      - traefik.http.routers.agenteupsellticket-https.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`)
+      - traefik.http.routers.agenteupsellticket-https.entrypoints=https
+      - traefik.http.routers.agenteupsellticket-https.tls=true
+      - traefik.http.routers.agenteupsellticket-https.tls.certresolver=letsencrypt
+      - traefik.http.routers.agenteupsellticket-https.service=agenteupsell
+      - traefik.http.routers.agenteupsellticket-http.rule=Host(`${APP_DOMAIN_3:-ticket.hidrabene.com.br}`)
+      - traefik.http.routers.agenteupsellticket-http.entrypoints=http
+      - traefik.http.routers.agenteupsellticket-http.service=agenteupsell
+      - traefik.http.routers.agenteupsellticket-http.middlewares=agenteupsell-redirect
 
   postgres:
     image: postgres:16-alpine
