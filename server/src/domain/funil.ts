@@ -869,8 +869,11 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
   }
   // Confirmação pro cliente: fecha o ciclo (🎉 + MESMO pedido + rastreio por aqui)
   const msgPago = renderCopy(copies.msg_pago ?? '', { nome });
-  await ctx.meta
-    .enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msgPago)
+  // A confirmação é a mensagem MAIS importante do funil: o cliente pagou e está
+  // esperando. Em 11/08 07:13 uma falha de rede ("fetch failed") deixou uma
+  // cliente sem resposta depois de pagar. Duas tentativas rápidas antes de
+  // desistir — e o sweeper ainda repesca depois (repescarConfirmacoes).
+  await enviarComRetry(() => ctx.meta.enviarTexto(destino(ctx, cfgd.modo, row.customer_phone), msgPago))
     .then(
       () => espelhoNota(ctx, row.store, row.order_id,
         `💰 OFERTA PAGA — R$ ${valorBr(valor)} via PIX (charge ${chargeId}). Faturamento adiciona o SKU ${oferta?.sku_yampi ?? '?'} ao pedido.\n\n🤖 Enviado (WhatsApp): ${msgPago}`,
@@ -880,6 +883,54 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
       },
     );
   return true;
+}
+
+// Repete um envio que falhou por motivo TRANSITÓRIO (rede/timeout/5xx da Meta).
+// Não repete erro de negócio (janela de 24h fechada, número inválido): esses
+// falham igual na segunda tentativa e só atrasariam o resto da fila.
+async function enviarComRetry<T>(fn: () => Promise<T>, tentativas = 3): Promise<T> {
+  let ultimo: unknown;
+  for (let i = 1; i <= tentativas; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      ultimo = e;
+      const msg = String((e as Error).message ?? '');
+      const transitorio = /fetch failed|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|socket hang up|meta 5\d\d/i.test(msg);
+      if (!transitorio || i === tentativas) break;
+      await new Promise((r) => setTimeout(r, i * 1500));
+    }
+  }
+  throw ultimo;
+}
+
+// Rede de segurança da confirmação: pagamento registrado, cliente sem resposta.
+// Procura pagos das últimas 2h cuja confirmação FALHOU e ainda não foi repescada.
+export async function repescarConfirmacoes(ctx: FunilCtx): Promise<void> {
+  const r = await ctx.db.query(
+    `SELECT DISTINCT (e.payload->>'order_id')::bigint AS order_id, e.store
+       FROM wa_events e
+      WHERE e.payload->>'erro' = 'confirmacao_pago_falhou'
+        AND e.created_at > now() - interval '2 hours'
+        AND NOT EXISTS (
+          SELECT 1 FROM wa_events ok
+           WHERE ok.payload->>'evento' = 'confirmacao_pago_repescada'
+             AND ok.payload->>'order_id' = e.payload->>'order_id')`,
+  );
+  for (const row of r.rows) {
+    const w = await getRow(ctx, row.store, Number(row.order_id));
+    if (!w || w.etapa !== 'pago') continue;
+    const cfgd = await getDisparosConfig(ctx);
+    const oferta = await getOferta(ctx, w.oferta_id);
+    const msg = renderCopy(oferta?.copies?.msg_pago ?? COPIES_DEFAULT.msg_pago, { nome: primeiroNome(w.customer_name) });
+    try {
+      await enviarComRetry(() => ctx.meta.enviarTexto(destino(ctx, cfgd.modo, w.customer_phone), msg));
+      await espelhoNota(ctx, w.store, w.order_id, `🔁 Confirmação de pagamento REPESCADA (o primeiro envio falhou).\n\n🤖 Enviado (WhatsApp): ${msg}`, msg);
+      await logEvento(ctx, w.store, { evento: 'confirmacao_pago_repescada', order_id: w.order_id });
+    } catch (e) {
+      await logEvento(ctx, w.store, { erro: 'repescagem_confirmacao_falhou', order_id: w.order_id, detalhe: String((e as Error).message).slice(0, 200) });
+    }
+  }
 }
 
 /* ===== 7. Sweeper (por minuto) ===== */

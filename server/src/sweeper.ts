@@ -6,7 +6,7 @@
 // - a cada 6h: retenção de wa_events (30 dias; eventos de pagamento ficam)
 import type { AgenteCtx } from './domain/agente/agente.js';
 import { responderPendentes } from './domain/agente/agente.js';
-import { FILA_META, logEvento, processarFilaDisparo, sweep } from './domain/funil.js';
+import { FILA_META, logEvento, processarFilaDisparo, repescarConfirmacoes, sweep } from './domain/funil.js';
 import { PAGINA_PIX_RETENCAO_DIAS } from './domain/pagina-pix.js';
 import { processarWebhookMeta } from './domain/metaWebhook.js';
 
@@ -20,6 +20,8 @@ export function startSweeper(ctx: AgenteCtx): () => void {
     rodandoSweep = true;
     try {
       await sweep(ctx);
+      // cliente que pagou e ficou sem confirmação por falha de rede
+      await repescarConfirmacoes(ctx).catch(() => {});
     } finally {
       rodandoSweep = false;
     }
