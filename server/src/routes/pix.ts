@@ -119,14 +119,27 @@ export function pixRoutes(app: FastifyInstance, ctx: FunilCtx): void {
       const quem = classificarUA(ua);
       // Só GENTE e só a PRIMEIRA vez: pré-carregamento do WhatsApp, robô e
       // reload não viram linha no banco (a métrica que interessa é "abriu?").
-      if (quem === 'pessoa' && (await primeiraVez(ctx, row.store, row.order_id, 'aberta'))) {
-        await logEvento(ctx, row.store, {
-          evento: 'pagina_pix_aberta',
-          order_id: row.order_id,
-          estado,
-          quem,
-          visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
-        }).catch(() => {});
+      // Quando NÃO é gente, guarda um pedaço do user-agent (só o nome do
+      // software, sem nada pessoal) na primeira ocorrência: sem isso não dá
+      // pra auditar se um cliente real foi classificado errado como robô.
+      const ehGente = quem === 'pessoa';
+      if (await primeiraVez(ctx, row.store, row.order_id, ehGente ? 'aberta' : `nao-gente:${quem}`)) {
+        if (ehGente) {
+          await logEvento(ctx, row.store, {
+            evento: 'pagina_pix_aberta',
+            order_id: row.order_id,
+            estado,
+            quem,
+            visitante: visitanteHash(ctx.cfg.SESSION_SECRET, String(req.ip ?? ''), ua),
+          }).catch(() => {});
+        } else {
+          await logEvento(ctx, row.store, {
+            evento: 'pagina_pix_nao_gente',
+            order_id: row.order_id,
+            quem,
+            ua_amostra: ua.slice(0, 60),
+          }).catch(() => {});
+        }
       }
       return reply.code(200).send(
         renderPaginaPix({
