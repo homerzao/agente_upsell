@@ -33,10 +33,10 @@ describe('loadConfig', () => {
     // O cliente vê SEMPRE o mesmo número (aceite, relógio da página e conta do
     // lembrete): TTL real − margem. A margem é a gordura invisível de quem
     // paga com o contador zerando (Jorge, 10/08). Fechamento vem depois de tudo.
-    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(23);
+    expect(cfg.WA_UPSELL_PIX_TTL_MIN).toBe(13);
     expect(cfg.WA_UPSELL_PIX_MARGEM_MIN).toBe(3);
-    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(20);
-    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(24);
+    expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(10); // decisão do Jorge
+    expect(cfg.WA_UPSELL_CLOSE_MIN).toBe(14);
     // INVARIANTE: anunciado = TTL − margem. Se alguém mexer num sem o outro,
     // a mensagem e o relógio da página passam a dizer coisas diferentes.
     expect(cfg.WA_UPSELL_PIX_PRAZO_ANUNCIADO_MIN).toBe(cfg.WA_UPSELL_PIX_TTL_MIN - cfg.WA_UPSELL_PIX_MARGEM_MIN);
