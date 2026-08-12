@@ -14,6 +14,7 @@ import { migrate } from './db/migrate.js';
 import { seed } from './domain/seed.js';
 import { criarMeta } from './services/meta.js';
 import { criarYampi } from './services/yampi.js';
+import { criarRastreai } from './services/rastreai.js';
 import { criarPagarme } from './services/pagarme.js';
 import { criarChatwoot } from './services/chatwoot.js';
 import { criarOpenAI } from './services/openai.js';
@@ -44,6 +45,7 @@ async function main() {
     cfg,
     meta: criarMeta(cfg),
     yampi: criarYampi(cfg),
+    rastreai: cfg.RASTREAI_TOKEN ? criarRastreai(cfg) : null,
     pagarme: criarPagarme(cfg),
     chatwoot: chatwootConfigurado ? criarChatwoot(cfg) : null,
     openai: cfg.OPENAI_API_KEY ? criarOpenAI(cfg) : null,

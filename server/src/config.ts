@@ -51,6 +51,10 @@ const schema = z.object({
   // Página de acompanhamento do pedido: base + NÚMERO do pedido Yampi.
   // Funciona desde o pagamento; o código de rastreio aparece lá quando despacha.
   RASTREIO_URL_BASE: z.string().default('https://rastreio.hidrabene.com.br/status/'),
+  // API do MESMO rastreio: adiciona no pedido o item que o cliente comprou no upsell
+  // (a cobrança é avulsa, o pedido da Yampi não muda). Sem token, a integração fica off.
+  RASTREAI_URL: z.string().default('https://api.rastreiai.com.br/api/v1'),
+  RASTREAI_TOKEN: z.string().default(''),
   // '1' = dispara o template pela rota do TechSAC (cria a conversa travada e
   // devolve o conversation_id INTERNO, necessário pra destravar depois).
   // '0' = envia direto pela Meta (sem id interno; destravar fica indisponível).

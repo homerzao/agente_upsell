@@ -8,6 +8,7 @@ import type { MetaService } from '../services/meta.js';
 import type { YampiService } from '../services/yampi.js';
 import type { PagarmeService } from '../services/pagarme.js';
 import type { ChatwootService } from '../services/chatwoot.js';
+import type { RastreaiService } from '../services/rastreai.js';
 import { LABEL_UPSELL } from '../services/chatwoot.js';
 import { carbon, foneBr, primeiroNome, renderCopy, soDigitos, valorBr } from '../lib/util.js';
 import { decidirDisparo, destinoMensagem, ehTransicaoParaPago, interpretarRespostaFlow } from './estados.js';
@@ -41,6 +42,7 @@ export type FunilCtx = {
   yampi: YampiService;
   pagarme: PagarmeService;
   chatwoot: ChatwootService | null;
+  rastreai?: RastreaiService | null;
 };
 
 /* ===== helpers ===== */
@@ -865,6 +867,8 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
   );
   if (!ins.rows.length) return true; // duplicado: já confirmado na primeira vez
   await waupSet(ctx, row.store, row.order_id, { status: 'closed', etapa: 'pago' });
+  // Item extra no rastreio do cliente (a cobrança é avulsa, o pedido da Yampi não muda).
+  await enviarItemAoRastreio(ctx, row, oferta?.nome ?? '', ins.rows[0].id);
   const cfgd = await getDisparosConfig(ctx);
   const copies = oferta?.copies ?? {};
   const nome = primeiroNome(row.customer_name);
@@ -897,6 +901,54 @@ export async function confirmarPagamento(ctx: FunilCtx, evento: any): Promise<bo
       },
     );
   return true;
+}
+
+/* ===== 6b. Item do upsell na página de rastreio =====
+   O cliente paga a oferta, o faturamento põe a unidade na caixa, mas o pedido da Yampi
+   continua com os itens originais — e era isso que a página de rastreio mostrava. Aqui o
+   item é anunciado lá também.
+   A rota do RastreiAI ADICIONA a cada POST (não é idempotente e não tem GET), então o
+   claim vem ANTES do envio: quem marcou a linha é o único que posta. Se o POST falhar, a
+   marca volta a NULL e o sweeper/backfill pode tentar de novo. */
+async function enviarItemAoRastreio(
+  ctx: FunilCtx,
+  row: WaUpsellRow,
+  produto: string,
+  pagamentoId: number,
+): Promise<void> {
+  if (!ctx.rastreai || !produto) return;
+  let numero = row.order_number ?? '';
+  if (!numero) {
+    numero = String((await ctx.yampi.getOrder(row.order_id).catch(() => null))?.number ?? '');
+  }
+  if (!numero || /^SANDBOX/i.test(numero)) return;
+
+  const claim = await ctx.db.query(
+    'UPDATE wa_upsell_pagamentos SET rastreai_enviado_em = now() WHERE id = $1 AND rastreai_enviado_em IS NULL RETURNING id',
+    [pagamentoId],
+  );
+  if (!claim.rows.length) return; // outro caminho (webhook repetido/backfill) já mandou
+
+  try {
+    const r = await ctx.rastreai.adicionarItem(numero, produto, 1);
+    await logEvento(ctx, row.store, {
+      evento: 'rastreai_item_add',
+      order_id: row.order_id,
+      order_number: numero,
+      produto,
+      itens_no_pedido: r?.orderItems?.length ?? null,
+    });
+  } catch (e) {
+    await ctx.db
+      .query('UPDATE wa_upsell_pagamentos SET rastreai_enviado_em = NULL WHERE id = $1', [pagamentoId])
+      .catch(() => {});
+    await logEvento(ctx, row.store, {
+      erro: 'rastreai_item_falhou',
+      order_id: row.order_id,
+      order_number: numero,
+      detalhe: String((e as Error).message).slice(0, 300),
+    });
+  }
 }
 
 // Repete um envio que falhou por motivo TRANSITÓRIO (rede/timeout/5xx da Meta).
