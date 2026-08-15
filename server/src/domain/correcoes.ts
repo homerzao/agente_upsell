@@ -188,7 +188,16 @@ async function rowDaCorrecao(ctx: FunilCtx, correcaoId: number): Promise<{ corre
 // Compara o que foi lido de volta com o que deveria ter sido gravado.
 export function verificarReadback(bodyEnviado: Record<string, unknown>, lido: Record<string, any>, chaves: string[]): string[] {
   const divergentes: string[] = [];
+  // A Yampi RE-DERIVA first_name/last_name a partir do `name`: last_name vira a
+  // ÚLTIMA palavra, o miolo fica só no `name`. Enviar "Silva Magnesi" e ler
+  // "Magnesi" NÃO é falha — o `name`, que é o que manda, gravou certo.
+  // Sem esta regra, 100% das correções de nome com sobrenome composto caíam em
+  // erro_aplicacao mesmo tendo aplicado (5 casos reais até 15/08; um deles
+  // deixou a row presa em corrigir_sac, segurando o faturamento).
+  const nomeEnviado = String(bodyEnviado.name ?? '').trim();
+  const nomeOk = nomeEnviado !== '' && nomeEnviado === String(lido?.name ?? '').trim();
   for (const k of chaves) {
+    if (nomeOk && (k === 'first_name' || k === 'last_name')) continue;
     let esperado = String(bodyEnviado[k] ?? '').trim();
     let atual = String(lido?.[k] ?? '').trim();
     // A Yampi normaliza e-mail para minúsculas: comparar exato acusaria

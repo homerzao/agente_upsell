@@ -53,6 +53,28 @@ describe('verificarReadback', () => {
     expect(verificarReadback({ email: 'a@x.com' }, { email: 'b@x.com' }, ['email'])).toEqual(['email']);
     expect(verificarReadback({ email: 'a@x.com' }, { email: 'a@x.com' }, ['email'])).toEqual([]);
   });
+
+  // A Yampi re-deriva last_name como a ÚLTIMA palavra do `name` (medido em 5
+  // correções reais: enviamos "Silva Magnesi", ela grava "Magnesi").
+  it('nome certo + last_name re-derivado pela Yampi NÃO é divergência', () => {
+    const enviado = { first_name: 'Ediclécia', last_name: 'Silva Magnesi', name: 'Ediclécia Silva Magnesi' };
+    const lido = { first_name: 'Ediclécia', last_name: 'Magnesi', name: 'Ediclécia Silva Magnesi' };
+    expect(verificarReadback(enviado, lido, ['first_name', 'last_name', 'name'])).toEqual([]);
+  });
+
+  it('mas se o `name` NÃO gravou, acusa divergência de verdade', () => {
+    const enviado = { first_name: 'Ediclécia', last_name: 'Silva Magnesi', name: 'Ediclécia Silva Magnesi' };
+    const lido = { first_name: 'Ediclecia', last_name: 'Magnei', name: 'Ediclecia silva magnei' };
+    const div = verificarReadback(enviado, lido, ['first_name', 'last_name', 'name']);
+    expect(div).toContain('name');
+    expect(div).toContain('last_name');
+  });
+
+  it('e-mail continua verificado normalmente numa correção que também mexe no nome', () => {
+    const enviado = { name: 'Ana Paula Souza', last_name: 'Paula Souza', email: 'novo@x.com' };
+    const lido = { name: 'Ana Paula Souza', last_name: 'Souza', email: 'antigo@x.com' };
+    expect(verificarReadback(enviado, lido, ['last_name', 'name', 'email'])).toEqual(['email']);
+  });
 });
 
 const pedidoComCliente = {
