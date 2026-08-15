@@ -157,6 +157,11 @@ export default function Aprovacoes() {
           <div style={{ margin: '12px 0' }}>
             <Diff antes={c.campos_antes} depois={c.campos_depois} />
           </div>
+          {c.analista_parecer && (
+            <div className="sub" style={{ margin: '0 0 12px' }}>
+              🤖 IA analista{c.analista_decisao === 'aprovar' ? ' aprovou' : ' deixou pra você'}: {c.analista_parecer}
+            </div>
+          )}
           {c.status === 'aguardando_aprovacao' && (
             <div className="linha">
               <button className="ok" disabled={processando === c.id} onClick={() => aprovar(c)}>

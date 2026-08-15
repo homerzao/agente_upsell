@@ -70,6 +70,7 @@ const cfgBase: DisparosConfig = {
   treinamento: '',
   debug_meta: false,
   metodos_permitidos: [],
+  analista_ativo: true,
 };
 
 // Só PIX entra no funil (decisão do Jorge, 09/08): cartão e boleto ficam

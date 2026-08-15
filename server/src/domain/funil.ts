@@ -84,6 +84,7 @@ export async function getDisparosConfig(ctx: FunilCtx): Promise<DisparosConfig> 
     treinamento: row.treinamento ?? '',
     debug_meta: row.debug_meta ?? false,
     metodos_permitidos: row.metodos_permitidos ?? [],
+    analista_ativo: row.analista_ativo ?? true,
   };
 }
 

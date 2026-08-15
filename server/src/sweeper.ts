@@ -6,6 +6,7 @@
 // - a cada 6h: retenção de wa_events (30 dias; eventos de pagamento ficam)
 import type { AgenteCtx } from './domain/agente/agente.js';
 import { responderPendentes } from './domain/agente/agente.js';
+import { analisarPendentes } from './domain/analista.js';
 import { FILA_META, logEvento, processarFilaDisparo, repescarConfirmacoes, sweep } from './domain/funil.js';
 import { PAGINA_PIX_RETENCAO_DIAS } from './domain/pagina-pix.js';
 import { processarWebhookMeta } from './domain/metaWebhook.js';
@@ -78,6 +79,21 @@ export function startSweeper(ctx: AgenteCtx): () => void {
     }
   }, 1_000);
 
+  // IA analista de aprovações: revisa correções pendentes paradas há 10min+.
+  // Aprova o caso claro (sem mensagem ao cliente); o resto fica pro humano.
+  let rodandoAnalista = false;
+  const t6 = setInterval(async () => {
+    if (rodandoAnalista) return;
+    rodandoAnalista = true;
+    try {
+      await analisarPendentes(ctx);
+    } catch {
+      /* próxima volta */
+    } finally {
+      rodandoAnalista = false;
+    }
+  }, 120_000);
+
   // Limpeza: requisito explícito com a Meta chamando direto (firehose).
   const t3 = setInterval(() => {
     ctx.db
@@ -99,10 +115,12 @@ export function startSweeper(ctx: AgenteCtx): () => void {
   t2.unref();
   t3.unref();
   t4.unref();
+  t6.unref();
   return () => {
     clearInterval(t1);
     clearInterval(t2);
     clearInterval(t3);
     clearInterval(t4);
+    clearInterval(t6);
   };
 }

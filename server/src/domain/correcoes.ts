@@ -157,9 +157,11 @@ export async function registrarCorrecao(
   );
   if (pendente.rows.length) {
     const id = pendente.rows[0].id;
-    // 'antes' preservado do primeiro registro: é o estado original na Yampi
+    // 'antes' preservado do primeiro registro: é o estado original na Yampi.
+    // Conteúdo mudou -> zera o parecer da analista para ela reavaliar a versão nova.
     await ctx.db.query(
-      `UPDATE correcoes SET campos_depois=$2, put_yampi=$3, criado_em=now() WHERE id=$1`,
+      `UPDATE correcoes SET campos_depois=$2, put_yampi=$3, criado_em=now(),
+         analista_em=NULL, analista_decisao=NULL, analista_parecer=NULL WHERE id=$1`,
       [id, { ...(pendente.rows[0].campos_antes ?? {}), ...depois }, { puts }],
     );
     await waupSet(ctx, store, orderId, { status: 'open', etapa: 'corrigir_sac' });

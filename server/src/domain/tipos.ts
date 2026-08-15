@@ -72,6 +72,7 @@ export type DisparosConfig = {
   treinamento: string; // estilo de escrita do agente IA (editável no painel)
   debug_meta: boolean; // loga resumo de todo webhook da Meta (aba Logs)
   metodos_permitidos: string[]; // alias Yampi aceitos no funil ([] = todos)
+  analista_ativo: boolean; // IA analista de aprovações (kill switch)
 };
 
 export type RespostaFlow = {
